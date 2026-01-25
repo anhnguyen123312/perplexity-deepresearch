@@ -282,3 +282,29 @@ MIT
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
+
+---
+
+## Development Skills
+
+This project follows strict testing and release workflows. See the [OpenCode Skills](https://github.com/anhnguyen123312/opencode-skills) for detailed guidelines:
+
+- **Testing**: Every code change requires full test suite run
+- **Coding**: Test-driven development with pre-commit checks
+- **Release**: Full verification before any release
+
+### Quick Reference
+
+```bash
+# After ANY code change
+uv run pytest
+
+# Before commit
+uv run ruff format .
+uv run ruff check --fix .
+uv run mypy perplexity_deep_research
+uv run pytest  # ALWAYS LAST
+
+# Before release
+uv run pytest --cov --cov-report=term-missing
+```
