@@ -10,6 +10,7 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass
+from pathlib import Path
 
 
 @dataclass
@@ -167,3 +168,86 @@ def ensure_chrome_accessible() -> ChromeAccessResult:
         was_quit=quit_success,
         accessible=quit_success,
     )
+
+
+def prompt_keychain_password() -> str | None:
+    """Prompt user for keychain password using macOS secure dialog.
+
+    Returns:
+        str: Password entered by user, or None if cancelled
+    """
+    script = """
+    tell application "System Events"
+        activate
+        set userPassword to text returned of (display dialog "Perplexity Deep Research needs your password to access Chrome cookies from Keychain.
+
+This is your macOS login password." default answer "" with hidden answer with title "Keychain Access Required" buttons {"Cancel", "OK"} default button "OK")
+        return userPassword
+    end tell
+    """
+    try:
+        result = subprocess.run(
+            ["osascript", "-e", script],
+            capture_output=True,
+            text=True,
+            timeout=120,  # 2 minutes to enter password
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+        return None
+    except (subprocess.TimeoutExpired, subprocess.SubprocessError):
+        return None
+
+
+def check_full_disk_access() -> bool:
+    """Check if terminal has Full Disk Access permission.
+
+    Returns:
+        bool: True if has access, False otherwise
+    """
+    cookie_path = (
+        Path.home() / "Library/Application Support/Google/Chrome/Default/Cookies"
+    )
+    try:
+        # Try to open the file - will fail without Full Disk Access
+        with open(cookie_path, "rb") as f:
+            f.read(1)
+        return True
+    except PermissionError:
+        return False
+    except FileNotFoundError:
+        return True  # File doesn't exist, but that's not a permission issue
+
+
+def show_full_disk_access_dialog():
+    """Show dialog explaining how to grant Full Disk Access."""
+    script = """
+    tell application "System Events"
+        activate
+        display dialog "Perplexity Deep Research needs Full Disk Access to read Chrome cookies.
+
+Please grant access:
+1. Open System Settings → Privacy & Security → Full Disk Access
+2. Click + and add your terminal app
+3. Toggle ON and restart your terminal
+
+Click OK to open System Settings." with title "Full Disk Access Required" buttons {"Cancel", "Open Settings"} default button "Open Settings"
+    end tell
+    """
+    try:
+        result = subprocess.run(
+            ["osascript", "-e", script],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        if "Open Settings" in result.stdout or result.returncode == 0:
+            # Open System Settings to Full Disk Access
+            subprocess.run(
+                [
+                    "open",
+                    "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles",
+                ]
+            )
+    except (subprocess.TimeoutExpired, subprocess.SubprocessError):
+        pass

@@ -7,11 +7,14 @@ import pytest
 
 from perplexity_deep_research.browser_control import (
     ChromeAccessResult,
+    check_full_disk_access,
     ensure_chrome_accessible,
     is_chrome_running,
     prompt_close_chrome,
+    prompt_keychain_password,
     quit_chrome,
     relaunch_chrome,
+    show_full_disk_access_dialog,
 )
 
 
@@ -273,3 +276,94 @@ class TestChromeAccessResult:
         result2 = ChromeAccessResult(was_running=True, was_quit=False, accessible=False)
 
         assert result1 == result2
+
+
+class TestPromptKeychainPassword:
+    def test_prompt_keychain_password_success(self) -> None:
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = "test_password\n"
+
+        with patch("subprocess.run", return_value=mock_result):
+            result = prompt_keychain_password()
+
+        assert result == "test_password"
+
+    def test_prompt_keychain_password_cancelled(self) -> None:
+        mock_result = MagicMock()
+        mock_result.returncode = 1
+        mock_result.stdout = ""
+
+        with patch("subprocess.run", return_value=mock_result):
+            result = prompt_keychain_password()
+
+        assert result is None
+
+    def test_prompt_keychain_password_timeout(self) -> None:
+        with patch(
+            "subprocess.run", side_effect=subprocess.TimeoutExpired("osascript", 120)
+        ):
+            result = prompt_keychain_password()
+
+        assert result is None
+
+    def test_prompt_keychain_password_subprocess_error(self) -> None:
+        with patch("subprocess.run", side_effect=subprocess.SubprocessError("error")):
+            result = prompt_keychain_password()
+
+        assert result is None
+
+
+class TestCheckFullDiskAccess:
+    def test_check_full_disk_access_has_access(self, tmp_path) -> None:
+        cookie_file = tmp_path / "Cookies"
+        cookie_file.write_bytes(b"test")
+
+        with patch(
+            "perplexity_deep_research.browser_control.Path.home",
+            return_value=tmp_path,
+        ):
+            with patch("builtins.open", MagicMock()):
+                result = check_full_disk_access()
+
+        assert result is True
+
+    def test_check_full_disk_access_permission_denied(self) -> None:
+        with patch("builtins.open", side_effect=PermissionError("access denied")):
+            result = check_full_disk_access()
+
+        assert result is False
+
+    def test_check_full_disk_access_file_not_found(self) -> None:
+        with patch("builtins.open", side_effect=FileNotFoundError("not found")):
+            result = check_full_disk_access()
+
+        assert result is True
+
+
+class TestShowFullDiskAccessDialog:
+    def test_show_full_disk_access_dialog_opens_settings(self) -> None:
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = "Open Settings"
+
+        with patch("subprocess.run", return_value=mock_result) as mock_run:
+            show_full_disk_access_dialog()
+
+        assert mock_run.call_count == 2
+
+    def test_show_full_disk_access_dialog_cancelled(self) -> None:
+        mock_result = MagicMock()
+        mock_result.returncode = 1
+        mock_result.stdout = ""
+
+        with patch("subprocess.run", return_value=mock_result) as mock_run:
+            show_full_disk_access_dialog()
+
+        assert mock_run.call_count == 1
+
+    def test_show_full_disk_access_dialog_timeout(self) -> None:
+        with patch(
+            "subprocess.run", side_effect=subprocess.TimeoutExpired("osascript", 60)
+        ):
+            show_full_disk_access_dialog()

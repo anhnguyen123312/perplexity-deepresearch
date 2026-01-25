@@ -13,7 +13,13 @@ from sqlite3 import OperationalError
 
 from pycookiecheat import BrowserType, chrome_cookies
 
-from .browser_control import ensure_chrome_accessible, relaunch_chrome
+from .browser_control import (
+    check_full_disk_access,
+    ensure_chrome_accessible,
+    prompt_keychain_password,
+    relaunch_chrome,
+    show_full_disk_access_dialog,
+)
 from .config import (
     COOKIE_MAX_AGE,
     CSRF_TOKEN_VARIANTS,
@@ -110,12 +116,15 @@ def to_http_cookies(normalized: dict) -> dict:
     return http_cookies
 
 
-def extract_cookies_raw() -> dict:
+def extract_cookies_raw(password: str | None = None) -> dict:
     """
     Extract cookies from Chrome using pycookiecheat.
 
     Low-level function that directly calls pycookiecheat.chrome_cookies().
     May raise sqlite3.OperationalError if Chrome is locking the database.
+
+    Args:
+        password: Optional keychain password for decryption
 
     Returns:
         dict: Raw cookie dict from pycookiecheat
@@ -128,20 +137,18 @@ def extract_cookies_raw() -> dict:
         url="https://www.perplexity.ai",
         browser=BrowserType.CHROME,
         cookie_file=get_chrome_cookie_path(),
+        password=password,
     )
 
 
 def extract_cookies_with_relaunch() -> dict:
     """
-    Extract cookies with guaranteed Chrome relaunch on quit.
+    Extract cookies with permission handling and Chrome relaunch.
 
-    Implements TRY-FIRST flow: attempts extraction without prompting first.
-    Only handles Chrome if database is actually locked.
-
-    Flow:
-    1. Try extraction first (works if Chrome not locking)
-    2. If locked: prompt user and quit Chrome if approved
-    3. Extract again with relaunch guarantee
+    Handles:
+    1. Full Disk Access permission errors
+    2. Keychain password prompts
+    3. Chrome database locking
 
     Returns:
         dict: Normalized cookie dict
@@ -149,15 +156,44 @@ def extract_cookies_with_relaunch() -> dict:
     Raises:
         CookieExtractionError: If extraction fails or Chrome can't be accessed
     """
-    # Step 1: Try extraction first (works if Chrome not locking)
-    try:
-        raw = extract_cookies_raw()
-        return normalize_cookies(raw)  # Success! No Chrome prompt needed
-    except Exception as e:
-        if not is_database_locked_error(e):
-            raise  # Not a lock error, propagate
+    if not check_full_disk_access():
+        show_full_disk_access_dialog()
+        raise CookieExtractionError(
+            "Full Disk Access required. Please grant access in System Settings and restart your terminal."
+        )
 
-    # Step 2: Locked - need to handle Chrome
+    password = None
+    max_attempts = 2
+
+    for attempt in range(max_attempts):
+        try:
+            raw = extract_cookies_raw(password=password)
+            return normalize_cookies(raw)
+        except Exception as e:
+            error_str = str(e).lower()
+
+            if (
+                "keychain" in error_str
+                or "password" in error_str
+                or "security" in error_str
+            ):
+                if attempt == 0:
+                    password = prompt_keychain_password()
+                    if password is None:
+                        raise CookieExtractionError(
+                            "Keychain access cancelled. Cannot extract cookies without password."
+                        )
+                    continue
+                else:
+                    raise CookieExtractionError(
+                        "Keychain access denied. Please check your password and try again."
+                    )
+
+            if is_database_locked_error(e):
+                break
+
+            raise
+
     result = ensure_chrome_accessible()
     if not result.accessible:
         raise CookieExtractionError(
@@ -165,9 +201,8 @@ def extract_cookies_with_relaunch() -> dict:
             "Please close Chrome manually and retry, or set PERPLEXITY_ALLOW_CHROME_QUIT=1."
         )
 
-    # Step 3: Chrome handled, extract with relaunch guarantee
     try:
-        raw = extract_cookies_raw()
+        raw = extract_cookies_raw(password=password)
         return normalize_cookies(raw)
     finally:
         if result.was_quit:

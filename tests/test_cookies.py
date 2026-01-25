@@ -280,17 +280,20 @@ class TestExtractCookiesWithRelaunch:
 
         with (
             patch(
+                "perplexity_deep_research.cookies.check_full_disk_access"
+            ) as mock_fda,
+            patch(
                 "perplexity_deep_research.cookies.extract_cookies_raw"
             ) as mock_extract,
             patch(
                 "perplexity_deep_research.cookies.ensure_chrome_accessible"
             ) as mock_ensure,
         ):
+            mock_fda.return_value = True
             mock_extract.return_value = raw_cookies
 
             result = extract_cookies_with_relaunch()
 
-            # Should succeed without calling ensure_chrome_accessible
             assert result["session_token"] == "eyJ0eXAiOiJKV1QiLCJhbGc..."
             mock_ensure.assert_not_called()
 
@@ -304,6 +307,9 @@ class TestExtractCookiesWithRelaunch:
 
         with (
             patch(
+                "perplexity_deep_research.cookies.check_full_disk_access"
+            ) as mock_fda,
+            patch(
                 "perplexity_deep_research.cookies.extract_cookies_raw"
             ) as mock_extract,
             patch(
@@ -311,7 +317,7 @@ class TestExtractCookiesWithRelaunch:
             ) as mock_ensure,
             patch("perplexity_deep_research.cookies.relaunch_chrome") as mock_relaunch,
         ):
-            # First call raises lock error, second succeeds
+            mock_fda.return_value = True
             mock_extract.side_effect = [lock_error, raw_cookies]
             mock_ensure.return_value = MagicMock(
                 accessible=True, was_quit=True, was_running=True
@@ -319,9 +325,7 @@ class TestExtractCookiesWithRelaunch:
 
             result = extract_cookies_with_relaunch()
 
-            # Should have called ensure_chrome_accessible
             mock_ensure.assert_called_once()
-            # Should have relaunched Chrome
             mock_relaunch.assert_called_once()
             assert result["session_token"] == "eyJ0eXAiOiJKV1QiLCJhbGc..."
 
@@ -331,12 +335,16 @@ class TestExtractCookiesWithRelaunch:
 
         with (
             patch(
+                "perplexity_deep_research.cookies.check_full_disk_access"
+            ) as mock_fda,
+            patch(
                 "perplexity_deep_research.cookies.extract_cookies_raw"
             ) as mock_extract,
             patch(
                 "perplexity_deep_research.cookies.ensure_chrome_accessible"
             ) as mock_ensure,
         ):
+            mock_fda.return_value = True
             mock_extract.side_effect = lock_error
             mock_ensure.return_value = MagicMock(accessible=False)
 
@@ -349,19 +357,92 @@ class TestExtractCookiesWithRelaunch:
 
         with (
             patch(
+                "perplexity_deep_research.cookies.check_full_disk_access"
+            ) as mock_fda,
+            patch(
                 "perplexity_deep_research.cookies.extract_cookies_raw"
             ) as mock_extract,
             patch(
                 "perplexity_deep_research.cookies.ensure_chrome_accessible"
             ) as mock_ensure,
         ):
+            mock_fda.return_value = True
             mock_extract.side_effect = other_error
 
             with pytest.raises(ValueError, match="Some other error"):
                 extract_cookies_with_relaunch()
 
-            # Should not call ensure_chrome_accessible for non-lock errors
             mock_ensure.assert_not_called()
+
+    def test_extract_raises_if_full_disk_access_missing(self):
+        """Test that error is raised if Full Disk Access is missing."""
+        with (
+            patch(
+                "perplexity_deep_research.cookies.check_full_disk_access"
+            ) as mock_fda,
+            patch(
+                "perplexity_deep_research.cookies.show_full_disk_access_dialog"
+            ) as mock_dialog,
+        ):
+            mock_fda.return_value = False
+
+            with pytest.raises(
+                CookieExtractionError, match="Full Disk Access required"
+            ):
+                extract_cookies_with_relaunch()
+
+            mock_dialog.assert_called_once()
+
+    def test_extract_prompts_for_keychain_password(self):
+        """Test that keychain password is prompted when needed."""
+        raw_cookies = {
+            "__Secure-next-auth.session-token": "eyJ0eXAiOiJKV1QiLCJhbGc...",
+        }
+        keychain_error = Exception("keychain access denied")
+
+        with (
+            patch(
+                "perplexity_deep_research.cookies.check_full_disk_access"
+            ) as mock_fda,
+            patch(
+                "perplexity_deep_research.cookies.extract_cookies_raw"
+            ) as mock_extract,
+            patch(
+                "perplexity_deep_research.cookies.prompt_keychain_password"
+            ) as mock_prompt,
+        ):
+            mock_fda.return_value = True
+            mock_extract.side_effect = [keychain_error, raw_cookies]
+            mock_prompt.return_value = "test_password"
+
+            result = extract_cookies_with_relaunch()
+
+            mock_prompt.assert_called_once()
+            assert result["session_token"] == "eyJ0eXAiOiJKV1QiLCJhbGc..."
+
+    def test_extract_raises_if_keychain_cancelled(self):
+        """Test that error is raised if keychain password prompt is cancelled."""
+        keychain_error = Exception("keychain access denied")
+
+        with (
+            patch(
+                "perplexity_deep_research.cookies.check_full_disk_access"
+            ) as mock_fda,
+            patch(
+                "perplexity_deep_research.cookies.extract_cookies_raw"
+            ) as mock_extract,
+            patch(
+                "perplexity_deep_research.cookies.prompt_keychain_password"
+            ) as mock_prompt,
+        ):
+            mock_fda.return_value = True
+            mock_extract.side_effect = keychain_error
+            mock_prompt.return_value = None
+
+            with pytest.raises(
+                CookieExtractionError, match="Keychain access cancelled"
+            ):
+                extract_cookies_with_relaunch()
 
 
 class TestGetCookies:
