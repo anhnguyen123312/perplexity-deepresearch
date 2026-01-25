@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from sqlite3 import OperationalError
 
-from pycookiecheat import BrowserType, get_cookies
+from pycookiecheat import BrowserType, chrome_cookies
 
 from .browser_control import ensure_chrome_accessible, relaunch_chrome
 from .config import (
@@ -114,7 +114,7 @@ def extract_cookies_raw() -> dict:
     """
     Extract cookies from Chrome using pycookiecheat.
 
-    Low-level function that directly calls pycookiecheat.get_cookies().
+    Low-level function that directly calls pycookiecheat.chrome_cookies().
     May raise sqlite3.OperationalError if Chrome is locking the database.
 
     Returns:
@@ -124,8 +124,8 @@ def extract_cookies_raw() -> dict:
         sqlite3.OperationalError: If Chrome is blocking database access
         Other exceptions from pycookiecheat
     """
-    return get_cookies(
-        url="https://www.perplexity.ai",  # MUST include www. prefix
+    return chrome_cookies(
+        url="https://www.perplexity.ai",
         browser=BrowserType.CHROME,
         cookie_file=get_chrome_cookie_path(),
     )

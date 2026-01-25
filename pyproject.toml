@@ -31,3 +31,8 @@ packages = ["perplexity_deep_research"]
 
 [tool.hatch.metadata]
 allow-direct-references = true
+
+[dependency-groups]
+dev = [
+    "pytest-cov>=7.0.0",
+]

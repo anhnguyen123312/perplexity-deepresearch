@@ -49,8 +49,8 @@ class TestExtractCookiesRaw:
             "__Secure-next-auth.csrf-token": "abc123def456",
         }
 
-        with patch("perplexity_deep_research.cookies.get_cookies") as mock_get:
-            mock_get.return_value = raw_cookies
+        with patch("perplexity_deep_research.cookies.chrome_cookies") as mock_chrome:
+            mock_chrome.return_value = raw_cookies
             result = extract_cookies_raw()
 
         assert result == raw_cookies
