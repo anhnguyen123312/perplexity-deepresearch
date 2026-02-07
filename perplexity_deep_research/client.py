@@ -12,13 +12,24 @@ from uuid import uuid4
 
 from curl_cffi import requests
 
+import logging
+import sys
+
 from .config import (
     API_VERSION,
     DEFAULT_HEADERS,
     ENDPOINT_AUTH_SESSION,
     ENDPOINT_SSE_ASK,
+    MAX_RETRIES,
     REQUEST_TIMEOUT,
 )
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    stream=sys.stderr,
+)
+logger = logging.getLogger("perplexity-deep-research")
 from .cookies import (
     extract_cookies_with_relaunch,
     get_cookies,
@@ -240,10 +251,11 @@ class PerplexityClient:
         Returns:
             dict: Response with 'answer', 'citations', 'backend_uuid'
         """
-        # Mode/model mapping (plan lines 656-672)
+        # Mode/model mapping
         mode_mapping = {
             "deep research": ("copilot", "pplx_alpha"),
             "pro": ("copilot", "pplx_pro"),
+            "reasoning": ("copilot", "r1"),
             "auto": ("concise", "turbo"),
         }
         payload_mode, model_preference = mode_mapping[mode]
@@ -266,17 +278,31 @@ class PerplexityClient:
             },
         }
 
-        # Make request with retry
-        response = self._request_with_retry(
-            "POST", ENDPOINT_SSE_ASK, json=payload, stream=True
-        )
+        # Make request with retry on transient errors
+        last_error = None
+        for attempt in range(MAX_RETRIES + 1):
+            try:
+                response = self._request_with_retry(
+                    "POST", ENDPOINT_SSE_ASK, json=payload, stream=True
+                )
+                parsed = self.parse_sse_response(response)
+                citations = self.extract_citations(parsed)
 
-        # Parse response
-        parsed = self.parse_sse_response(response)
-        citations = self.extract_citations(parsed)
+                return {
+                    "answer": parsed["answer"],
+                    "citations": citations,
+                    "backend_uuid": parsed.get("backend_uuid", ""),
+                }
+            except (PerplexityError, RateLimitError) as e:
+                last_error = e
+                if attempt < MAX_RETRIES:
+                    wait = 2 ** attempt * 2  # 2s, 4s backoff
+                    logger.warning(
+                        f"Attempt {attempt + 1}/{MAX_RETRIES + 1} failed: {e}. "
+                        f"Retrying in {wait}s..."
+                    )
+                    time.sleep(wait)
+                else:
+                    raise last_error from e
 
-        return {
-            "answer": parsed["answer"],
-            "citations": citations,
-            "backend_uuid": parsed.get("backend_uuid", ""),
-        }
+        raise last_error  # Should not reach here

@@ -1,4 +1,4 @@
-"""Tests for MCP server with 4 tools."""
+"""Tests for MCP server with 5 tools."""
 
 import pytest
 from unittest.mock import Mock, patch, MagicMock
@@ -8,44 +8,44 @@ from perplexity_deep_research.server import (
     get_client,
     deep_research,
     ask,
+    reason,
     search,
     follow_up,
 )
 
 
-class TestExactly4ToolsRegistered:
-    """Test that exactly 4 tools are registered."""
+class TestExactly5ToolsRegistered:
+    """Test that exactly 5 tools are registered."""
 
-    def test_exactly_4_tools_registered(self):
-        """Assert only deep_research, ask, search, follow_up are registered."""
-        # Check that the 4 tools are callable and registered
-        # by verifying they exist as functions in the module
+    def test_exactly_5_tools_registered(self):
+        """Assert deep_research, ask, reason, search, follow_up are registered."""
         from perplexity_deep_research import server
 
-        # Verify all 4 tools exist
+        # Verify all 5 tools exist
         assert hasattr(server, "deep_research")
         assert hasattr(server, "ask")
+        assert hasattr(server, "reason")
         assert hasattr(server, "search")
         assert hasattr(server, "follow_up")
 
         # Verify they are callable
         assert callable(server.deep_research)
         assert callable(server.ask)
+        assert callable(server.reason)
         assert callable(server.search)
         assert callable(server.follow_up)
 
-        # Verify they have @mcp.tool() decorator by checking they're in mcp._tool_manager._tools
-        # (FastMCP stores decorated tools internally)
+        # Verify they have @mcp.tool() decorator
         assert hasattr(mcp, "_tool_manager")
         tool_names = list(mcp._tool_manager._tools.keys())
 
-        # Should have exactly 4 tools
-        assert len(tool_names) == 4, (
-            f"Expected 4 tools, got {len(tool_names)}: {tool_names}"
+        # Should have exactly 5 tools
+        assert len(tool_names) == 5, (
+            f"Expected 5 tools, got {len(tool_names)}: {tool_names}"
         )
 
         # Should have exactly these tools
-        expected_tools = {"deep_research", "ask", "search", "follow_up"}
+        expected_tools = {"deep_research", "ask", "reason", "search", "follow_up"}
         actual_tools = set(tool_names)
         assert actual_tools == expected_tools, (
             f"Expected {expected_tools}, got {actual_tools}"

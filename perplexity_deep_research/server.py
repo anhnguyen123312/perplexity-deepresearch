@@ -1,4 +1,4 @@
-"""MCP server for Perplexity Deep Research with 4 tools."""
+"""MCP server for Perplexity Deep Research with 5 tools."""
 
 from mcp.server.fastmcp import FastMCP
 
@@ -77,6 +77,37 @@ def ask(query: str, sources: list[str] = ["web"], language: str = "en-US") -> di
 
 
 @mcp.tool()
+def reason(query: str, sources: list[str] = ["web"], language: str = "en-US") -> dict:
+    """
+    Reasoning-focused analysis for questions requiring step-by-step thinking.
+
+    Uses Perplexity's reasoning mode for comparisons, trade-off analysis,
+    and decisions that benefit from systematic evaluation. Provide your specific
+    situation and constraints for best results.
+
+    Args:
+        query: Analytical question with context and constraints
+        sources: List of sources to search (default: ["web"])
+        language: Language code (default: "en-US")
+
+    Returns:
+        dict: Response with 'answer', 'citations', 'backend_uuid' keys
+              OR {'error': str} on failure
+    """
+    try:
+        client = get_client()
+        return client.search(
+            query=query,
+            mode="reasoning",
+            sources=sources,
+            language=language,
+            follow_up=None,
+        )
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@mcp.tool()
 def search(query: str, sources: list[str] = ["web"], language: str = "en-US") -> dict:
     """
     Perform a quick basic search.
@@ -124,7 +155,7 @@ def follow_up(query: str, backend_uuid: str) -> dict:
             mode="auto",
             sources=["web"],
             language="en-US",
-            follow_up=backend_uuid,  # Pass UUID to link conversation
+            follow_up=backend_uuid,
         )
     except Exception as e:
         return {"error": str(e)}

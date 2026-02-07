@@ -18,9 +18,12 @@ API_VERSION = "2.18"
 ENDPOINT_AUTH_SESSION = f"{API_BASE_URL}/api/auth/session"
 ENDPOINT_SSE_ASK = f"{API_BASE_URL}/rest/sse/perplexity_ask"
 
-# Timeouts
-REQUEST_TIMEOUT = 900  # 15 minutes for long-running deep research queries
+# Timeouts (configurable via environment variables)
+REQUEST_TIMEOUT = int(os.environ.get("PERPLEXITY_TIMEOUT", "900"))  # 15 min default
 COOKIE_MAX_AGE = 86400  # 24 hours
+
+# Retry configuration
+MAX_RETRIES = int(os.environ.get("PERPLEXITY_MAX_RETRIES", "2"))
 
 # HTTP Headers Template (exactly 20 headers)
 DEFAULT_HEADERS = {
