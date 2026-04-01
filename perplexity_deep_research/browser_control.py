@@ -1,8 +1,10 @@
 """
-macOS browser control functions using AppleScript.
+Cross-platform browser control functions.
 
 Provides Chrome detection, interactive/non-interactive prompting,
 quit/relaunch functionality, and structured result tracking.
+
+Supports macOS (AppleScript) and Linux (pgrep/pkill).
 """
 
 import os
@@ -28,25 +30,79 @@ class ChromeAccessResult:
     accessible: bool
 
 
-def is_chrome_running() -> bool:
-    """Check if Google Chrome is currently running on macOS.
+def _is_macos() -> bool:
+    return sys.platform == "darwin"
 
-    Uses AppleScript to query System Events for running processes.
+
+def _is_linux() -> bool:
+    return sys.platform.startswith("linux")
+
+
+def _find_chrome_process_name() -> str | None:
+    """Find the running Chrome process name on Linux.
+
+    Returns:
+        str: Process name if found, None otherwise
+    """
+    for name in ("google-chrome", "chrome", "chromium-browser", "chromium"):
+        try:
+            result = subprocess.run(
+                ["pgrep", "-x", name],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode == 0:
+                return name
+        except (subprocess.TimeoutExpired, subprocess.SubprocessError):
+            continue
+    return None
+
+
+def _find_chrome_command() -> str | None:
+    """Find the Chrome executable on Linux.
+
+    Returns:
+        str: Path to Chrome executable if found, None otherwise
+    """
+    for cmd in ("google-chrome", "google-chrome-stable", "chromium-browser", "chromium"):
+        try:
+            result = subprocess.run(
+                ["which", cmd],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode == 0:
+                return result.stdout.strip()
+        except (subprocess.TimeoutExpired, subprocess.SubprocessError):
+            continue
+    return None
+
+
+def is_chrome_running() -> bool:
+    """Check if Google Chrome is currently running.
+
+    Uses AppleScript on macOS, pgrep on Linux.
 
     Returns:
         bool: True if Chrome is running, False otherwise
     """
-    script = 'tell application "System Events" to (name of processes) contains "Google Chrome"'
-    try:
-        result = subprocess.run(
-            ["osascript", "-e", script],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        return result.stdout.strip().lower() == "true"
-    except (subprocess.TimeoutExpired, subprocess.SubprocessError):
-        return False
+    if _is_macos():
+        script = 'tell application "System Events" to (name of processes) contains "Google Chrome"'
+        try:
+            result = subprocess.run(
+                ["osascript", "-e", script],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            return result.stdout.strip().lower() == "true"
+        except (subprocess.TimeoutExpired, subprocess.SubprocessError):
+            return False
+    elif _is_linux():
+        return _find_chrome_process_name() is not None
+    return False
 
 
 def prompt_close_chrome() -> bool:
@@ -87,23 +143,39 @@ def prompt_close_chrome() -> bool:
 
 
 def quit_chrome() -> bool:
-    """Gracefully quit Google Chrome using AppleScript.
+    """Gracefully quit Google Chrome.
 
-    Sends quit command and polls for process exit with 500ms intervals,
-    up to 10 second timeout.
+    Uses AppleScript on macOS, pkill (SIGTERM) on Linux.
+    Polls for process exit with 500ms intervals, up to 10 second timeout.
 
     Returns:
         bool: True if Chrome quit successfully, False otherwise
     """
-    quit_script = 'tell application "Google Chrome" to quit'
-    try:
-        subprocess.run(
-            ["osascript", "-e", quit_script],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-    except (subprocess.TimeoutExpired, subprocess.SubprocessError):
+    if _is_macos():
+        quit_script = 'tell application "Google Chrome" to quit'
+        try:
+            subprocess.run(
+                ["osascript", "-e", quit_script],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+        except (subprocess.TimeoutExpired, subprocess.SubprocessError):
+            return False
+    elif _is_linux():
+        proc_name = _find_chrome_process_name()
+        if not proc_name:
+            return True  # Already not running
+        try:
+            subprocess.run(
+                ["pkill", "-TERM", "-x", proc_name],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+        except (subprocess.TimeoutExpired, subprocess.SubprocessError):
+            return False
+    else:
         return False
 
     max_wait = 10.0
@@ -120,22 +192,38 @@ def quit_chrome() -> bool:
 
 
 def relaunch_chrome() -> bool:
-    """Relaunch Google Chrome using AppleScript.
+    """Relaunch Google Chrome.
 
-    Activates Chrome and verifies it's running.
+    Uses AppleScript on macOS, launches Chrome executable on Linux.
 
     Returns:
         bool: True if Chrome was relaunched successfully, False otherwise
     """
-    activate_script = 'tell application "Google Chrome" to activate'
-    try:
-        subprocess.run(
-            ["osascript", "-e", activate_script],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-    except (subprocess.TimeoutExpired, subprocess.SubprocessError):
+    if _is_macos():
+        activate_script = 'tell application "Google Chrome" to activate'
+        try:
+            subprocess.run(
+                ["osascript", "-e", activate_script],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+        except (subprocess.TimeoutExpired, subprocess.SubprocessError):
+            return False
+    elif _is_linux():
+        chrome_cmd = _find_chrome_command()
+        if not chrome_cmd:
+            return False
+        try:
+            subprocess.Popen(
+                [chrome_cmd],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return False
+    else:
         return False
 
     time.sleep(1.0)
@@ -143,7 +231,7 @@ def relaunch_chrome() -> bool:
 
 
 def ensure_chrome_accessible() -> ChromeAccessResult:
-    """Orchestrate the prompt→quit flow to ensure Chrome cookies are accessible.
+    """Orchestrate the prompt->quit flow to ensure Chrome cookies are accessible.
 
     This function coordinates checking if Chrome is running, prompting the user
     for permission to quit, and quitting Chrome if approved.
@@ -171,45 +259,82 @@ def ensure_chrome_accessible() -> ChromeAccessResult:
 
 
 def prompt_keychain_password() -> str | None:
-    """Prompt user for keychain password using macOS secure dialog.
+    """Prompt user for password to decrypt Chrome cookies.
+
+    On macOS, uses a secure AppleScript dialog (Keychain password).
+    On Linux, uses terminal getpass (GNOME Keyring / kwallet password not
+    typically required as pycookiecheat handles D-Bus Secret Service).
 
     Returns:
         str: Password entered by user, or None if cancelled
     """
-    script = """
-    tell application "System Events"
-        activate
-        set userPassword to text returned of (display dialog "Perplexity Deep Research needs your password to access Chrome cookies from Keychain.
+    if _is_macos():
+        script = """
+        tell application "System Events"
+            activate
+            set userPassword to text returned of (display dialog "Perplexity Deep Research needs your password to access Chrome cookies from Keychain.
 
 This is your macOS login password." default answer "" with hidden answer with title "Keychain Access Required" buttons {"Cancel", "OK"} default button "OK")
-        return userPassword
-    end tell
-    """
-    try:
-        result = subprocess.run(
-            ["osascript", "-e", script],
-            capture_output=True,
-            text=True,
-            timeout=120,  # 2 minutes to enter password
-        )
-        if result.returncode == 0:
-            return result.stdout.strip()
-        return None
-    except (subprocess.TimeoutExpired, subprocess.SubprocessError):
-        return None
+            return userPassword
+        end tell
+        """
+        try:
+            result = subprocess.run(
+                ["osascript", "-e", script],
+                capture_output=True,
+                text=True,
+                timeout=120,  # 2 minutes to enter password
+            )
+            if result.returncode == 0:
+                return result.stdout.strip()
+            return None
+        except (subprocess.TimeoutExpired, subprocess.SubprocessError):
+            return None
+    else:
+        # On Linux, try terminal-based password prompt
+        import getpass
+
+        try:
+            if not sys.stdin.isatty():
+                return None
+            password = getpass.getpass(
+                "Enter password to decrypt Chrome cookies (or Ctrl+C to cancel): "
+            )
+            return password if password else None
+        except (EOFError, KeyboardInterrupt, OSError):
+            return None
 
 
 def check_full_disk_access() -> bool:
-    """Check if terminal has Full Disk Access permission.
+    """Check if terminal can read Chrome cookie database.
+
+    On macOS, checks Full Disk Access permission.
+    On Linux, checks if the Chrome cookie file is readable.
 
     Returns:
         bool: True if has access, False otherwise
     """
-    cookie_path = (
-        Path.home() / "Library/Application Support/Google/Chrome/Default/Cookies"
-    )
+    if _is_macos():
+        cookie_path = (
+            Path.home() / "Library/Application Support/Google/Chrome/Default/Cookies"
+        )
+    elif _is_linux():
+        # Check common Linux Chrome cookie paths
+        candidates = [
+            Path.home() / ".config/google-chrome/Default/Cookies",
+            Path.home() / ".config/chromium/Default/Cookies",
+        ]
+        cookie_path = None
+        for candidate in candidates:
+            if candidate.exists():
+                cookie_path = candidate
+                break
+        if cookie_path is None:
+            return True  # No cookie file found, not a permission issue
+    else:
+        return True
+
     try:
-        # Try to open the file - will fail without Full Disk Access
         with open(cookie_path, "rb") as f:
             f.read(1)
         return True
@@ -220,34 +345,55 @@ def check_full_disk_access() -> bool:
 
 
 def show_full_disk_access_dialog():
-    """Show dialog explaining how to grant Full Disk Access."""
-    script = """
-    tell application "System Events"
-        activate
-        display dialog "Perplexity Deep Research needs Full Disk Access to read Chrome cookies.
+    """Show instructions for granting cookie access.
+
+    On macOS, shows an AppleScript dialog and opens System Settings.
+    On Linux, prints instructions to stderr.
+    """
+    if _is_macos():
+        script = """
+        tell application "System Events"
+            activate
+            display dialog "Perplexity Deep Research needs Full Disk Access to read Chrome cookies.
 
 Please grant access:
-1. Open System Settings → Privacy & Security → Full Disk Access
+1. Open System Settings -> Privacy & Security -> Full Disk Access
 2. Click + and add your terminal app
 3. Toggle ON and restart your terminal
 
 Click OK to open System Settings." with title "Full Disk Access Required" buttons {"Cancel", "Open Settings"} default button "Open Settings"
-    end tell
-    """
-    try:
-        result = subprocess.run(
-            ["osascript", "-e", script],
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-        if "Open Settings" in result.stdout or result.returncode == 0:
-            # Open System Settings to Full Disk Access
-            subprocess.run(
-                [
-                    "open",
-                    "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles",
-                ]
+        end tell
+        """
+        try:
+            result = subprocess.run(
+                ["osascript", "-e", script],
+                capture_output=True,
+                text=True,
+                timeout=60,
             )
-    except (subprocess.TimeoutExpired, subprocess.SubprocessError):
-        pass
+            if "Open Settings" in result.stdout or result.returncode == 0:
+                subprocess.run(
+                    [
+                        "open",
+                        "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles",
+                    ]
+                )
+        except (subprocess.TimeoutExpired, subprocess.SubprocessError):
+            pass
+    elif _is_linux():
+        print(
+            "\nPerplexity Deep Research cannot read Chrome cookies.",
+            file=sys.stderr,
+        )
+        print(
+            "Please ensure Chrome/Chromium is installed and you have read access to:",
+            file=sys.stderr,
+        )
+        print(
+            "  ~/.config/google-chrome/Default/Cookies",
+            file=sys.stderr,
+        )
+        print(
+            "  or ~/.config/chromium/Default/Cookies",
+            file=sys.stderr,
+        )

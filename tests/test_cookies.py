@@ -387,7 +387,7 @@ class TestExtractCookiesWithRelaunch:
             mock_fda.return_value = False
 
             with pytest.raises(
-                CookieExtractionError, match="Full Disk Access required"
+                CookieExtractionError, match="Cannot read Chrome cookie database"
             ):
                 extract_cookies_with_relaunch()
 
@@ -547,39 +547,64 @@ class TestDatabaseLockedDetection:
 class TestGetChromeCookiePath:
     """Tests for get_chrome_cookie_path() function."""
 
-    def test_get_chrome_cookie_path_default_profile(self, monkeypatch):
-        """Test Chrome cookie path resolution with default profile."""
-        # Mock the path existence check
-        with patch("perplexity_deep_research.cookies.Path.exists") as mock_exists:
-            mock_exists.return_value = True
-            with patch("perplexity_deep_research.cookies.Path.resolve") as mock_resolve:
-                mock_resolve.return_value = Path(
-                    "/Users/test/Library/Application Support/Google/Chrome/Default/Cookies"
-                )
+    def test_get_chrome_cookie_path_default_profile_macos(self, monkeypatch, tmp_path):
+        """Test Chrome cookie path resolution with default profile on macOS."""
+        monkeypatch.setattr("sys.platform", "darwin")
+        cookie_file = tmp_path / "Library/Application Support/Google/Chrome/Default/Cookies"
+        cookie_file.parent.mkdir(parents=True)
+        cookie_file.touch()
 
-                result = get_chrome_cookie_path()
+        with patch("perplexity_deep_research.cookies.Path.home", return_value=tmp_path):
+            result = get_chrome_cookie_path()
 
-                assert isinstance(result, str)
-                assert "Cookies" in result
+        assert isinstance(result, str)
+        assert "Cookies" in result
 
-    def test_get_chrome_cookie_path_custom_profile(self, monkeypatch):
+    def test_get_chrome_cookie_path_default_profile_linux(self, monkeypatch, tmp_path):
+        """Test Chrome cookie path resolution with default profile on Linux."""
+        monkeypatch.setattr("sys.platform", "linux")
+        cookie_file = tmp_path / ".config/google-chrome/Default/Cookies"
+        cookie_file.parent.mkdir(parents=True)
+        cookie_file.touch()
+
+        with patch("perplexity_deep_research.cookies.Path.home", return_value=tmp_path):
+            result = get_chrome_cookie_path()
+
+        assert isinstance(result, str)
+        assert "Cookies" in result
+
+    def test_get_chrome_cookie_path_chromium_linux(self, monkeypatch, tmp_path):
+        """Test Chrome cookie path falls back to Chromium on Linux."""
+        monkeypatch.setattr("sys.platform", "linux")
+        # Only create chromium path, not google-chrome
+        cookie_file = tmp_path / ".config/chromium/Default/Cookies"
+        cookie_file.parent.mkdir(parents=True)
+        cookie_file.touch()
+
+        with patch("perplexity_deep_research.cookies.Path.home", return_value=tmp_path):
+            result = get_chrome_cookie_path()
+
+        assert isinstance(result, str)
+        assert "chromium" in result
+        assert "Cookies" in result
+
+    def test_get_chrome_cookie_path_custom_profile(self, monkeypatch, tmp_path):
         """Test Chrome cookie path resolution with custom profile."""
-        with patch("perplexity_deep_research.cookies.Path.exists") as mock_exists:
-            mock_exists.return_value = True
-            with patch("perplexity_deep_research.cookies.Path.resolve") as mock_resolve:
-                mock_resolve.return_value = Path(
-                    "/Users/test/Library/Application Support/Google/Chrome/Profile 1/Cookies"
-                )
+        monkeypatch.setattr("sys.platform", "linux")
+        cookie_file = tmp_path / ".config/google-chrome/Profile 1/Cookies"
+        cookie_file.parent.mkdir(parents=True)
+        cookie_file.touch()
 
-                result = get_chrome_cookie_path(profile="Profile 1")
+        with patch("perplexity_deep_research.cookies.Path.home", return_value=tmp_path):
+            result = get_chrome_cookie_path(profile="Profile 1")
 
-                assert isinstance(result, str)
-                assert "Profile 1" in result
+        assert isinstance(result, str)
+        assert "Profile 1" in result
 
     def test_get_chrome_cookie_path_not_found(self):
         """Test that error is raised if Chrome cookie file not found."""
-        with patch("perplexity_deep_research.cookies.Path.exists") as mock_exists:
-            mock_exists.return_value = False
+        with patch("perplexity_deep_research.cookies.Path.home") as mock_home:
+            mock_home.return_value = Path("/nonexistent")
 
             with pytest.raises(
                 CookieExtractionError, match="Chrome cookie file not found"

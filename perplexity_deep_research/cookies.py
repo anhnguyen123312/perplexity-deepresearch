@@ -32,10 +32,14 @@ from .exceptions import CookieExtractionError
 
 def get_chrome_cookie_path(profile: str = None) -> str:
     """
-    Resolve Chrome cookie database path on macOS.
+    Resolve Chrome cookie database path (macOS and Linux).
 
     Resolves the absolute path to Chrome's Cookies SQLite database file.
     Uses CHROME_PROFILE env var or parameter (default: "Default").
+
+    On macOS: ~/Library/Application Support/Google/Chrome/<profile>/Cookies
+    On Linux: ~/.config/google-chrome/<profile>/Cookies
+              or ~/.config/chromium/<profile>/Cookies
 
     Args:
         profile: Chrome profile name (e.g., "Default", "Profile 1")
@@ -46,12 +50,30 @@ def get_chrome_cookie_path(profile: str = None) -> str:
     Raises:
         CookieExtractionError: If Chrome cookie file not found
     """
-    base = Path.home() / "Library/Application Support/Google/Chrome"
+    import sys
+
     profile = os.environ.get("CHROME_PROFILE", profile or "Default")
-    cookie_path = base / profile / "Cookies"
-    if not cookie_path.exists():
-        raise CookieExtractionError(f"Chrome cookie file not found: {cookie_path}")
-    return str(cookie_path.resolve())  # Absolute path string
+
+    if sys.platform == "darwin":
+        bases = [Path.home() / "Library/Application Support/Google/Chrome"]
+    elif sys.platform.startswith("linux"):
+        bases = [
+            Path.home() / ".config/google-chrome",
+            Path.home() / ".config/chromium",
+        ]
+    else:
+        bases = [Path.home() / "Library/Application Support/Google/Chrome"]
+
+    for base in bases:
+        cookie_path = base / profile / "Cookies"
+        if cookie_path.exists():
+            return str(cookie_path.resolve())
+
+    # Build helpful error message with all paths checked
+    checked = [str(base / profile / "Cookies") for base in bases]
+    raise CookieExtractionError(
+        f"Chrome cookie file not found. Checked: {', '.join(checked)}"
+    )
 
 
 def normalize_cookies(raw_cookies: dict) -> dict:
@@ -146,8 +168,8 @@ def extract_cookies_with_relaunch() -> dict:
     Extract cookies with permission handling and Chrome relaunch.
 
     Handles:
-    1. Full Disk Access permission errors
-    2. Keychain password prompts
+    1. Cookie file access permission errors (Full Disk Access on macOS)
+    2. Keychain/secret storage password prompts
     3. Chrome database locking
 
     Returns:
@@ -159,7 +181,7 @@ def extract_cookies_with_relaunch() -> dict:
     if not check_full_disk_access():
         show_full_disk_access_dialog()
         raise CookieExtractionError(
-            "Full Disk Access required. Please grant access in System Settings and restart your terminal."
+            "Cannot read Chrome cookie database. Please check file permissions and ensure Chrome is installed."
         )
 
     password = None
