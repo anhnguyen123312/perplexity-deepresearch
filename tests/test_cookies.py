@@ -42,19 +42,62 @@ def isolate_cookies_file(tmp_path, monkeypatch):
 class TestExtractCookiesRaw:
     """Tests for extract_cookies_raw() function."""
 
-    def test_extract_cookies_success(self):
-        """Test successful cookie extraction from Chrome."""
+    def test_extract_cookies_success_macos(self):
+        """Test successful cookie extraction from Chrome (macOS path via pycookiecheat)."""
         raw_cookies = {
             "__Secure-next-auth.session-token": "eyJ0eXAiOiJKV1QiLCJhbGc...",
             "__Secure-next-auth.csrf-token": "abc123def456",
         }
 
-        with patch("perplexity_deep_research.cookies.chrome_cookies") as mock_chrome:
-            mock_chrome.return_value = raw_cookies
-            result = extract_cookies_raw()
+        with patch("perplexity_deep_research.cookies.sys") as mock_sys:
+            mock_sys.platform = "darwin"
+            with patch(
+                "perplexity_deep_research.cookies.chrome_cookies"
+            ) as mock_chrome:
+                mock_chrome.return_value = raw_cookies
+                result = extract_cookies_raw()
 
         assert result == raw_cookies
         assert "session_token" not in result  # Raw, not normalized
+
+    def test_extract_cookies_success_linux_native(self, monkeypatch):
+        """Test successful cookie extraction on Linux using native decryption."""
+        raw_cookies = {
+            "__Secure-next-auth.session-token": "eyJ0eXAiOiJKV1QiLCJhbGc...",
+            "__Secure-next-auth.csrf-token": "abc123def456",
+        }
+
+        import perplexity_deep_research.cookies as cookies_mod
+
+        monkeypatch.setattr(cookies_mod.sys, "platform", "linux")
+        with patch(
+            "perplexity_deep_research.cookies._extract_cookies_linux_native"
+        ) as mock_native:
+            mock_native.return_value = raw_cookies
+            result = extract_cookies_raw()
+
+        assert result == raw_cookies
+
+    def test_extract_cookies_linux_fallback_to_pycookiecheat(self, monkeypatch):
+        """Test Linux falls back to pycookiecheat when native extraction fails."""
+        raw_cookies = {
+            "__Secure-next-auth.session-token": "eyJ0eXAiOiJKV1QiLCJhbGc...",
+        }
+
+        import perplexity_deep_research.cookies as cookies_mod
+
+        monkeypatch.setattr(cookies_mod.sys, "platform", "linux")
+        with patch(
+            "perplexity_deep_research.cookies._extract_cookies_linux_native",
+            side_effect=RuntimeError("native failed"),
+        ):
+            with patch(
+                "perplexity_deep_research.cookies.chrome_cookies"
+            ) as mock_chrome:
+                mock_chrome.return_value = raw_cookies
+                result = extract_cookies_raw()
+
+        assert result == raw_cookies
 
 
 class TestNormalizeCookies:

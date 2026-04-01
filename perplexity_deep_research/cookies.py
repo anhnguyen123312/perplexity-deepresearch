@@ -5,8 +5,11 @@ Provides functions to extract cookies from Chrome, normalize them to a canonical
 shape, persist them to disk, and retrieve them with caching and expiry detection.
 """
 
+import hashlib
 import json
 import os
+import sqlite3
+import sys
 from datetime import datetime
 from pathlib import Path
 from sqlite3 import OperationalError
@@ -138,27 +141,144 @@ def to_http_cookies(normalized: dict) -> dict:
     return http_cookies
 
 
-def extract_cookies_raw(password: str | None = None) -> dict:
+def _decrypt_v11_cookie(encrypted_value: bytes, key: bytes) -> str:
     """
-    Extract cookies from Chrome using pycookiecheat.
+    Decrypt a Chrome v11 encrypted cookie value on Linux.
 
-    Low-level function that directly calls pycookiecheat.chrome_cookies().
-    May raise sqlite3.OperationalError if Chrome is locking the database.
+    v11 uses AES-128-CBC with a 16-byte key derived via PBKDF2-SHA1
+    from the Chrome Safe Storage password in the system keyring.
+    IV is 16 space bytes (0x20). Cookie DB version >= 24 prepends a
+    32-byte SHA-256 domain hash to the plaintext before encryption.
 
     Args:
-        password: Optional keychain password for decryption
+        encrypted_value: Raw encrypted bytes (with 'v11' prefix stripped)
+        key: 16-byte AES key from PBKDF2
 
     Returns:
-        dict: Raw cookie dict from pycookiecheat
+        str: Decrypted cookie value
+    """
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+
+    iv = b' ' * 16
+    cipher = Cipher(algorithms.AES(key), modes.CBC(iv))
+    decryptor = cipher.decryptor()
+    decrypted = decryptor.update(encrypted_value) + decryptor.finalize()
+
+    # Strip PKCS7 padding
+    pad_len = decrypted[-1]
+    if 0 < pad_len <= 16:
+        decrypted = decrypted[:-pad_len]
+
+    # DB version >= 24: strip 32-byte SHA-256 domain hash prefix
+    if len(decrypted) > 32:
+        decrypted = decrypted[32:]
+
+    return decrypted.decode("utf-8")
+
+
+def _extract_cookies_linux_native(cookie_db_path: str) -> dict:
+    """
+    Extract and decrypt cookies directly on Linux using native decryption.
+
+    Bypasses pycookiecheat to handle Chrome v11 encryption and cookie DB
+    version 24+ (with domain hash prefix) that pycookiecheat doesn't support.
+
+    Args:
+        cookie_db_path: Path to Chrome Cookies SQLite database
+
+    Returns:
+        dict: Raw cookie dict {name: value} for perplexity.ai
+
+    Raises:
+        CookieExtractionError: If decryption key cannot be obtained
+        sqlite3.OperationalError: If database is locked
+    """
+    import secretstorage
+
+    # Get Chrome Safe Storage password from keyring
+    conn = secretstorage.dbus_init()
+    collection = secretstorage.get_default_collection(conn)
+    password = None
+    for item in collection.get_all_items():
+        attrs = item.get_attributes()
+        if attrs.get("application") == "chrome" and "v2" in attrs.get(
+            "xdg:schema", ""
+        ):
+            password = item.get_secret()
+            break
+    if password is None:
+        # Fallback: try any Chrome Safe Storage entry
+        for item in collection.get_all_items():
+            if item.get_label() == "Chrome Safe Storage":
+                password = item.get_secret()
+                break
+    if password is None:
+        raise CookieExtractionError(
+            "Chrome Safe Storage key not found in system keyring. "
+            "Ensure Chrome has been run at least once and the keyring is unlocked."
+        )
+
+    # Derive AES key: PBKDF2-SHA1, salt='saltysalt', 1 iteration, 16-byte key
+    # Password is used as-is (ASCII bytes), NOT base64-decoded
+    key = hashlib.pbkdf2_hmac("sha1", password, b"saltysalt", 1, dklen=16)
+
+    # Query cookies from SQLite
+    db = sqlite3.connect(cookie_db_path)
+    cursor = db.cursor()
+    cursor.execute(
+        "SELECT name, encrypted_value, value FROM cookies "
+        "WHERE host_key LIKE '%perplexity.ai%'"
+    )
+    cookies = {}
+    for name, encrypted_value, plain_value in cursor.fetchall():
+        if plain_value:
+            cookies[name] = plain_value
+        elif encrypted_value:
+            prefix = encrypted_value[:3]
+            if prefix == b"v11" or prefix == b"v10":
+                try:
+                    cookies[name] = _decrypt_v11_cookie(encrypted_value[3:], key)
+                except Exception:
+                    pass  # Skip cookies that fail to decrypt
+    db.close()
+    return cookies
+
+
+def extract_cookies_raw(password: str | None = None) -> dict:
+    """
+    Extract cookies from Chrome.
+
+    On Linux with v11 encryption, uses native decryption to handle Chrome 130+
+    cookie format. Falls back to pycookiecheat on macOS or when native
+    extraction fails.
+
+    Args:
+        password: Optional keychain password for decryption (macOS only)
+
+    Returns:
+        dict: Raw cookie dict
 
     Raises:
         sqlite3.OperationalError: If Chrome is blocking database access
-        Other exceptions from pycookiecheat
+        CookieExtractionError: If cookie extraction fails
     """
+    cookie_path = get_chrome_cookie_path()
+
+    # On Linux, try native decryption first (handles v11 + DB v24)
+    if sys.platform.startswith("linux"):
+        try:
+            return _extract_cookies_linux_native(cookie_path)
+        except OperationalError:
+            raise  # Re-raise DB lock errors for relaunch handling
+        except CookieExtractionError:
+            raise
+        except Exception:
+            pass  # Fall through to pycookiecheat
+
     return chrome_cookies(
         url="https://www.perplexity.ai",
         browser=BrowserType.CHROME,
-        cookie_file=get_chrome_cookie_path(),
+        cookie_file=cookie_path,
         password=password,
     )
 
