@@ -14,7 +14,9 @@ pip install git+https://github.com/anhnguyen123312/perplexity-deepresearch.git
 
 ### Claude Desktop Setup
 
-Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+Add to your Claude Desktop config:
+- **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Linux**: `~/.config/Claude/claude_desktop_config.json`
 
 ```json
 {
@@ -54,27 +56,37 @@ Use follow_up to ask: "Tell me more about that"
 
 ## 🔐 Permissions (Automatic)
 
-**No manual setup required!** The app handles everything through guided dialogs. On first use:
+**No manual setup required!** The app handles everything through guided prompts. On first use:
 
+### macOS
 1. **Full Disk Access** - A dialog will guide you to System Settings to allow reading Chrome's cookie database.
 2. **Keychain Password** - A secure macOS prompt will ask for your password to decrypt the cookies.
+
+### Linux
+1. **Cookie file access** - Chrome cookies are read from `~/.config/google-chrome/` or `~/.config/chromium/`.
+2. **Secret Service** - Cookie decryption uses D-Bus Secret Service (GNOME Keyring / KWallet). Ensure your keyring is unlocked.
 
 Just follow the on-screen instructions - no complex manual configuration needed.
 
 ## ✨ Features
 
 - 🔄 **Auto-refresh**: Automatically refreshes expired cookies on 401/403 errors.
-- 🔒 **Secure Integration**: Uses macOS Keychain for secure cookie decryption.
+- 🔒 **Secure Integration**: Uses macOS Keychain or Linux Secret Service for secure cookie decryption.
 - 🚀 **4 Research Tools**: Access `deep_research`, `ask`, `search`, and `follow_up`.
 - 💾 **Smart Caching**: 24-hour cookie caching for faster performance.
 - 🎯 **Chrome Impersonation**: Uses TLS fingerprinting to match your browser.
 
 ## 📋 Requirements
 
-- **macOS** (v1 supports macOS only)
+- **macOS** or **Linux** (including Kali Linux, Ubuntu, Debian, etc.)
 - **Python 3.12+**
-- **Google Chrome**
-- **Perplexity.ai account** (logged in Chrome)
+- **Google Chrome** or **Chromium**
+- **Perplexity.ai account** (logged in Chrome/Chromium)
+
+### Linux-specific requirements
+
+- `secretstorage` (installed automatically) for GNOME Keyring / D-Bus Secret Service
+- Chrome/Chromium installed via standard package manager
 
 ## 🔧 Troubleshooting
 

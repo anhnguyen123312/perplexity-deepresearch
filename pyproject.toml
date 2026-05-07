@@ -1,7 +1,7 @@
 [project]
 name = "perplexity-deep-research"
 version = "0.2.0"
-description = "Perplexity Deep Research MCP server with Chrome cookie extraction and curl_cffi"
+description = "Perplexity Deep Research MCP server with Chrome cookie extraction and curl_cffi (macOS & Linux)"
 requires-python = ">=3.12"
 dependencies = [
     "curl-cffi>=0.7.0",
@@ -9,6 +9,7 @@ dependencies = [
     "mcp>=1.0.0",
     "python-dotenv>=1.0.0",
     "pydantic>=2.9.0",
+    "secretstorage>=3.3.0; sys_platform == 'linux'",
 ]
 
 [project.optional-dependencies]

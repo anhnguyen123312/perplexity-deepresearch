@@ -1,6 +1,7 @@
 """Tests for browser_control module."""
 
 import subprocess
+import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -18,13 +19,20 @@ from perplexity_deep_research.browser_control import (
 )
 
 
-class TestIsChromeRunning:
+class TestIsChromeRunningMacOS:
     def test_is_chrome_running_true(self) -> None:
         mock_result = MagicMock()
         mock_result.stdout = "true\n"
 
-        with patch("subprocess.run", return_value=mock_result) as mock_run:
-            result = is_chrome_running()
+        with patch(
+            "perplexity_deep_research.browser_control._is_macos", return_value=True
+        ):
+            with patch(
+                "perplexity_deep_research.browser_control._is_linux",
+                return_value=False,
+            ):
+                with patch("subprocess.run", return_value=mock_result) as mock_run:
+                    result = is_chrome_running()
 
         assert result is True
         mock_run.assert_called_once()
@@ -39,23 +47,82 @@ class TestIsChromeRunning:
         mock_result = MagicMock()
         mock_result.stdout = "false\n"
 
-        with patch("subprocess.run", return_value=mock_result) as mock_run:
-            result = is_chrome_running()
+        with patch(
+            "perplexity_deep_research.browser_control._is_macos", return_value=True
+        ):
+            with patch(
+                "perplexity_deep_research.browser_control._is_linux",
+                return_value=False,
+            ):
+                with patch("subprocess.run", return_value=mock_result) as mock_run:
+                    result = is_chrome_running()
 
         assert result is False
         mock_run.assert_called_once()
 
     def test_is_chrome_running_timeout(self) -> None:
         with patch(
-            "subprocess.run", side_effect=subprocess.TimeoutExpired("osascript", 5)
+            "perplexity_deep_research.browser_control._is_macos", return_value=True
         ):
-            result = is_chrome_running()
+            with patch(
+                "perplexity_deep_research.browser_control._is_linux",
+                return_value=False,
+            ):
+                with patch(
+                    "subprocess.run",
+                    side_effect=subprocess.TimeoutExpired("osascript", 5),
+                ):
+                    result = is_chrome_running()
 
         assert result is False
 
     def test_is_chrome_running_subprocess_error(self) -> None:
-        with patch("subprocess.run", side_effect=subprocess.SubprocessError("error")):
-            result = is_chrome_running()
+        with patch(
+            "perplexity_deep_research.browser_control._is_macos", return_value=True
+        ):
+            with patch(
+                "perplexity_deep_research.browser_control._is_linux",
+                return_value=False,
+            ):
+                with patch(
+                    "subprocess.run",
+                    side_effect=subprocess.SubprocessError("error"),
+                ):
+                    result = is_chrome_running()
+
+        assert result is False
+
+
+class TestIsChromeRunningLinux:
+    def test_is_chrome_running_true_linux(self) -> None:
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+
+        with patch(
+            "perplexity_deep_research.browser_control._is_macos", return_value=False
+        ):
+            with patch(
+                "perplexity_deep_research.browser_control._is_linux",
+                return_value=True,
+            ):
+                with patch("subprocess.run", return_value=mock_result):
+                    result = is_chrome_running()
+
+        assert result is True
+
+    def test_is_chrome_running_false_linux(self) -> None:
+        mock_result = MagicMock()
+        mock_result.returncode = 1
+
+        with patch(
+            "perplexity_deep_research.browser_control._is_macos", return_value=False
+        ):
+            with patch(
+                "perplexity_deep_research.browser_control._is_linux",
+                return_value=True,
+            ):
+                with patch("subprocess.run", return_value=mock_result):
+                    result = is_chrome_running()
 
         assert result is False
 
@@ -75,9 +142,16 @@ class TestQuitChrome:
             mock_check.stdout = "false\n" if call_count >= 3 else "true\n"
             return mock_check
 
-        with patch("subprocess.run", side_effect=mock_run_side_effect):
-            with patch("time.sleep") as mock_sleep:
-                result = quit_chrome()
+        with patch(
+            "perplexity_deep_research.browser_control._is_macos", return_value=True
+        ):
+            with patch(
+                "perplexity_deep_research.browser_control._is_linux",
+                return_value=False,
+            ):
+                with patch("subprocess.run", side_effect=mock_run_side_effect):
+                    with patch("time.sleep") as mock_sleep:
+                        result = quit_chrome()
 
         assert result is True
         assert mock_sleep.call_count >= 1
@@ -89,9 +163,18 @@ class TestQuitChrome:
         mock_check = MagicMock()
         mock_check.stdout = "true\n"
 
-        with patch("subprocess.run", side_effect=[mock_result] + [mock_check] * 25):
-            with patch("time.sleep"):
-                result = quit_chrome()
+        with patch(
+            "perplexity_deep_research.browser_control._is_macos", return_value=True
+        ):
+            with patch(
+                "perplexity_deep_research.browser_control._is_linux",
+                return_value=False,
+            ):
+                with patch(
+                    "subprocess.run", side_effect=[mock_result] + [mock_check] * 25
+                ):
+                    with patch("time.sleep"):
+                        result = quit_chrome()
 
         assert result is False
 
@@ -160,9 +243,16 @@ class TestRelaunchChrome:
         mock_check = MagicMock()
         mock_check.stdout = "true\n"
 
-        with patch("subprocess.run", side_effect=[mock_result, mock_check]):
-            with patch("time.sleep"):
-                result = relaunch_chrome()
+        with patch(
+            "perplexity_deep_research.browser_control._is_macos", return_value=True
+        ):
+            with patch(
+                "perplexity_deep_research.browser_control._is_linux",
+                return_value=False,
+            ):
+                with patch("subprocess.run", side_effect=[mock_result, mock_check]):
+                    with patch("time.sleep"):
+                        result = relaunch_chrome()
 
         assert result is True
 
@@ -173,15 +263,32 @@ class TestRelaunchChrome:
         mock_check = MagicMock()
         mock_check.stdout = "false\n"
 
-        with patch("subprocess.run", side_effect=[mock_result, mock_check]):
-            with patch("time.sleep"):
-                result = relaunch_chrome()
+        with patch(
+            "perplexity_deep_research.browser_control._is_macos", return_value=True
+        ):
+            with patch(
+                "perplexity_deep_research.browser_control._is_linux",
+                return_value=False,
+            ):
+                with patch("subprocess.run", side_effect=[mock_result, mock_check]):
+                    with patch("time.sleep"):
+                        result = relaunch_chrome()
 
         assert result is False
 
     def test_relaunch_chrome_subprocess_error(self) -> None:
-        with patch("subprocess.run", side_effect=subprocess.SubprocessError("error")):
-            result = relaunch_chrome()
+        with patch(
+            "perplexity_deep_research.browser_control._is_macos", return_value=True
+        ):
+            with patch(
+                "perplexity_deep_research.browser_control._is_linux",
+                return_value=False,
+            ):
+                with patch(
+                    "subprocess.run",
+                    side_effect=subprocess.SubprocessError("error"),
+                ):
+                    result = relaunch_chrome()
 
         assert result is False
 
@@ -190,9 +297,17 @@ class TestEnsureChromeAccessible:
     def test_ensure_chrome_accessible_returns_result(self) -> None:
         mock_result = MagicMock()
         mock_result.stdout = "false\n"
+        mock_result.returncode = 1
 
-        with patch("subprocess.run", return_value=mock_result):
-            result = ensure_chrome_accessible()
+        with patch(
+            "perplexity_deep_research.browser_control._is_macos", return_value=True
+        ):
+            with patch(
+                "perplexity_deep_research.browser_control._is_linux",
+                return_value=False,
+            ):
+                with patch("subprocess.run", return_value=mock_result):
+                    result = ensure_chrome_accessible()
 
         assert isinstance(result, ChromeAccessResult)
         assert hasattr(result, "was_running")
@@ -202,9 +317,17 @@ class TestEnsureChromeAccessible:
     def test_ensure_chrome_accessible_not_running(self) -> None:
         mock_result = MagicMock()
         mock_result.stdout = "false\n"
+        mock_result.returncode = 1
 
-        with patch("subprocess.run", return_value=mock_result):
-            result = ensure_chrome_accessible()
+        with patch(
+            "perplexity_deep_research.browser_control._is_macos", return_value=True
+        ):
+            with patch(
+                "perplexity_deep_research.browser_control._is_linux",
+                return_value=False,
+            ):
+                with patch("subprocess.run", return_value=mock_result):
+                    result = ensure_chrome_accessible()
 
         assert result == ChromeAccessResult(
             was_running=False, was_quit=False, accessible=True
@@ -225,12 +348,19 @@ class TestEnsureChromeAccessible:
                 mock.stdout = "false\n"
             return mock
 
-        with patch("subprocess.run", side_effect=mock_run_side_effect):
-            with patch("sys.stdin.isatty", return_value=True):
-                with patch("builtins.input", return_value="y"):
-                    with patch("builtins.print"):
-                        with patch("time.sleep"):
-                            result = ensure_chrome_accessible()
+        with patch(
+            "perplexity_deep_research.browser_control._is_macos", return_value=True
+        ):
+            with patch(
+                "perplexity_deep_research.browser_control._is_linux",
+                return_value=False,
+            ):
+                with patch("subprocess.run", side_effect=mock_run_side_effect):
+                    with patch("sys.stdin.isatty", return_value=True):
+                        with patch("builtins.input", return_value="y"):
+                            with patch("builtins.print"):
+                                with patch("time.sleep"):
+                                    result = ensure_chrome_accessible()
 
         assert result == ChromeAccessResult(
             was_running=True, was_quit=True, accessible=True
@@ -240,11 +370,18 @@ class TestEnsureChromeAccessible:
         mock_result = MagicMock()
         mock_result.stdout = "true\n"
 
-        with patch("subprocess.run", return_value=mock_result):
-            with patch("sys.stdin.isatty", return_value=True):
-                with patch("builtins.input", return_value="n"):
-                    with patch("builtins.print"):
-                        result = ensure_chrome_accessible()
+        with patch(
+            "perplexity_deep_research.browser_control._is_macos", return_value=True
+        ):
+            with patch(
+                "perplexity_deep_research.browser_control._is_linux",
+                return_value=False,
+            ):
+                with patch("subprocess.run", return_value=mock_result):
+                    with patch("sys.stdin.isatty", return_value=True):
+                        with patch("builtins.input", return_value="n"):
+                            with patch("builtins.print"):
+                                result = ensure_chrome_accessible()
 
         assert result == ChromeAccessResult(
             was_running=True, was_quit=False, accessible=False
@@ -254,9 +391,16 @@ class TestEnsureChromeAccessible:
         mock_result = MagicMock()
         mock_result.stdout = "true\n"
 
-        with patch("subprocess.run", return_value=mock_result):
-            with patch("sys.stdin.isatty", return_value=False):
-                result = ensure_chrome_accessible()
+        with patch(
+            "perplexity_deep_research.browser_control._is_macos", return_value=True
+        ):
+            with patch(
+                "perplexity_deep_research.browser_control._is_linux",
+                return_value=False,
+            ):
+                with patch("subprocess.run", return_value=mock_result):
+                    with patch("sys.stdin.isatty", return_value=False):
+                        result = ensure_chrome_accessible()
 
         assert result == ChromeAccessResult(
             was_running=True, was_quit=False, accessible=False
@@ -278,14 +422,17 @@ class TestChromeAccessResult:
         assert result1 == result2
 
 
-class TestPromptKeychainPassword:
+class TestPromptKeychainPasswordMacOS:
     def test_prompt_keychain_password_success(self) -> None:
         mock_result = MagicMock()
         mock_result.returncode = 0
         mock_result.stdout = "test_password\n"
 
-        with patch("subprocess.run", return_value=mock_result):
-            result = prompt_keychain_password()
+        with patch(
+            "perplexity_deep_research.browser_control._is_macos", return_value=True
+        ):
+            with patch("subprocess.run", return_value=mock_result):
+                result = prompt_keychain_password()
 
         assert result == "test_password"
 
@@ -294,50 +441,157 @@ class TestPromptKeychainPassword:
         mock_result.returncode = 1
         mock_result.stdout = ""
 
-        with patch("subprocess.run", return_value=mock_result):
-            result = prompt_keychain_password()
+        with patch(
+            "perplexity_deep_research.browser_control._is_macos", return_value=True
+        ):
+            with patch("subprocess.run", return_value=mock_result):
+                result = prompt_keychain_password()
 
         assert result is None
 
     def test_prompt_keychain_password_timeout(self) -> None:
         with patch(
-            "subprocess.run", side_effect=subprocess.TimeoutExpired("osascript", 120)
+            "perplexity_deep_research.browser_control._is_macos", return_value=True
         ):
-            result = prompt_keychain_password()
+            with patch(
+                "subprocess.run",
+                side_effect=subprocess.TimeoutExpired("osascript", 120),
+            ):
+                result = prompt_keychain_password()
 
         assert result is None
 
     def test_prompt_keychain_password_subprocess_error(self) -> None:
-        with patch("subprocess.run", side_effect=subprocess.SubprocessError("error")):
-            result = prompt_keychain_password()
+        with patch(
+            "perplexity_deep_research.browser_control._is_macos", return_value=True
+        ):
+            with patch(
+                "subprocess.run",
+                side_effect=subprocess.SubprocessError("error"),
+            ):
+                result = prompt_keychain_password()
+
+        assert result is None
+
+
+class TestPromptKeychainPasswordLinux:
+    def test_prompt_password_linux_success(self) -> None:
+        with patch(
+            "perplexity_deep_research.browser_control._is_macos", return_value=False
+        ):
+            with patch("sys.stdin.isatty", return_value=True):
+                with patch("getpass.getpass", return_value="linux_password"):
+                    result = prompt_keychain_password()
+
+        assert result == "linux_password"
+
+    def test_prompt_password_linux_non_interactive(self) -> None:
+        with patch(
+            "perplexity_deep_research.browser_control._is_macos", return_value=False
+        ):
+            with patch("sys.stdin.isatty", return_value=False):
+                result = prompt_keychain_password()
+
+        assert result is None
+
+    def test_prompt_password_linux_cancelled(self) -> None:
+        with patch(
+            "perplexity_deep_research.browser_control._is_macos", return_value=False
+        ):
+            with patch("sys.stdin.isatty", return_value=True):
+                with patch("getpass.getpass", side_effect=KeyboardInterrupt()):
+                    result = prompt_keychain_password()
 
         assert result is None
 
 
 class TestCheckFullDiskAccess:
-    def test_check_full_disk_access_has_access(self, tmp_path) -> None:
+    def test_check_full_disk_access_has_access_macos(self, tmp_path) -> None:
         cookie_file = tmp_path / "Cookies"
         cookie_file.write_bytes(b"test")
 
         with patch(
-            "perplexity_deep_research.browser_control.Path.home",
-            return_value=tmp_path,
+            "perplexity_deep_research.browser_control._is_macos", return_value=True
         ):
-            with patch("builtins.open", MagicMock()):
-                result = check_full_disk_access()
+            with patch(
+                "perplexity_deep_research.browser_control._is_linux",
+                return_value=False,
+            ):
+                with patch(
+                    "perplexity_deep_research.browser_control.Path.home",
+                    return_value=tmp_path,
+                ):
+                    with patch("builtins.open", MagicMock()):
+                        result = check_full_disk_access()
 
         assert result is True
 
     def test_check_full_disk_access_permission_denied(self) -> None:
-        with patch("builtins.open", side_effect=PermissionError("access denied")):
-            result = check_full_disk_access()
+        with patch(
+            "perplexity_deep_research.browser_control._is_macos", return_value=True
+        ):
+            with patch(
+                "perplexity_deep_research.browser_control._is_linux",
+                return_value=False,
+            ):
+                with patch(
+                    "builtins.open", side_effect=PermissionError("access denied")
+                ):
+                    result = check_full_disk_access()
 
         assert result is False
 
     def test_check_full_disk_access_file_not_found(self) -> None:
-        with patch("builtins.open", side_effect=FileNotFoundError("not found")):
-            result = check_full_disk_access()
+        with patch(
+            "perplexity_deep_research.browser_control._is_macos", return_value=True
+        ):
+            with patch(
+                "perplexity_deep_research.browser_control._is_linux",
+                return_value=False,
+            ):
+                with patch(
+                    "builtins.open", side_effect=FileNotFoundError("not found")
+                ):
+                    result = check_full_disk_access()
 
+        assert result is True
+
+    def test_check_full_disk_access_linux(self, tmp_path) -> None:
+        # Create a Chrome cookie file on "Linux"
+        cookie_file = tmp_path / ".config/google-chrome/Default/Cookies"
+        cookie_file.parent.mkdir(parents=True)
+        cookie_file.write_bytes(b"test")
+
+        with patch(
+            "perplexity_deep_research.browser_control._is_macos", return_value=False
+        ):
+            with patch(
+                "perplexity_deep_research.browser_control._is_linux",
+                return_value=True,
+            ):
+                with patch(
+                    "perplexity_deep_research.browser_control.Path.home",
+                    return_value=tmp_path,
+                ):
+                    result = check_full_disk_access()
+
+        assert result is True
+
+    def test_check_full_disk_access_linux_no_chrome(self, tmp_path) -> None:
+        with patch(
+            "perplexity_deep_research.browser_control._is_macos", return_value=False
+        ):
+            with patch(
+                "perplexity_deep_research.browser_control._is_linux",
+                return_value=True,
+            ):
+                with patch(
+                    "perplexity_deep_research.browser_control.Path.home",
+                    return_value=tmp_path,
+                ):
+                    result = check_full_disk_access()
+
+        # No cookie file found = not a permission issue
         assert result is True
 
 
@@ -347,8 +601,15 @@ class TestShowFullDiskAccessDialog:
         mock_result.returncode = 0
         mock_result.stdout = "Open Settings"
 
-        with patch("subprocess.run", return_value=mock_result) as mock_run:
-            show_full_disk_access_dialog()
+        with patch(
+            "perplexity_deep_research.browser_control._is_macos", return_value=True
+        ):
+            with patch(
+                "perplexity_deep_research.browser_control._is_linux",
+                return_value=False,
+            ):
+                with patch("subprocess.run", return_value=mock_result) as mock_run:
+                    show_full_disk_access_dialog()
 
         assert mock_run.call_count == 2
 
@@ -357,13 +618,42 @@ class TestShowFullDiskAccessDialog:
         mock_result.returncode = 1
         mock_result.stdout = ""
 
-        with patch("subprocess.run", return_value=mock_result) as mock_run:
-            show_full_disk_access_dialog()
+        with patch(
+            "perplexity_deep_research.browser_control._is_macos", return_value=True
+        ):
+            with patch(
+                "perplexity_deep_research.browser_control._is_linux",
+                return_value=False,
+            ):
+                with patch("subprocess.run", return_value=mock_result) as mock_run:
+                    show_full_disk_access_dialog()
 
         assert mock_run.call_count == 1
 
     def test_show_full_disk_access_dialog_timeout(self) -> None:
         with patch(
-            "subprocess.run", side_effect=subprocess.TimeoutExpired("osascript", 60)
+            "perplexity_deep_research.browser_control._is_macos", return_value=True
         ):
-            show_full_disk_access_dialog()
+            with patch(
+                "perplexity_deep_research.browser_control._is_linux",
+                return_value=False,
+            ):
+                with patch(
+                    "subprocess.run",
+                    side_effect=subprocess.TimeoutExpired("osascript", 60),
+                ):
+                    show_full_disk_access_dialog()
+
+    def test_show_full_disk_access_dialog_linux(self) -> None:
+        with patch(
+            "perplexity_deep_research.browser_control._is_macos", return_value=False
+        ):
+            with patch(
+                "perplexity_deep_research.browser_control._is_linux",
+                return_value=True,
+            ):
+                with patch("builtins.print") as mock_print:
+                    show_full_disk_access_dialog()
+
+        # Should have printed Linux-specific instructions
+        assert mock_print.call_count >= 1
