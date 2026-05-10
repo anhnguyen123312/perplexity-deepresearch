@@ -1,4 +1,4 @@
-"""Tests for MCP server with 5 tools."""
+"""Tests for MCP server tools."""
 
 import pytest
 from unittest.mock import Mock, patch, MagicMock
@@ -14,42 +14,24 @@ from perplexity_deep_research.server import (
 )
 
 
-class TestExactly5ToolsRegistered:
-    """Test that exactly 5 tools are registered."""
+class TestPerplexityToolsRegistered:
+    """The five Perplexity tools must always be registered (Grok tools are
+    optional add-ons that may or may not be present)."""
 
-    def test_exactly_5_tools_registered(self):
-        """Assert deep_research, ask, reason, search, follow_up are registered."""
+    def test_perplexity_tools_registered(self):
         from perplexity_deep_research import server
 
-        # Verify all 5 tools exist
-        assert hasattr(server, "deep_research")
-        assert hasattr(server, "ask")
-        assert hasattr(server, "reason")
-        assert hasattr(server, "search")
-        assert hasattr(server, "follow_up")
+        # All five Perplexity tools must exist and be callable
+        for name in ("deep_research", "ask", "reason", "search", "follow_up"):
+            assert hasattr(server, name), f"missing tool: {name}"
+            assert callable(getattr(server, name))
 
-        # Verify they are callable
-        assert callable(server.deep_research)
-        assert callable(server.ask)
-        assert callable(server.reason)
-        assert callable(server.search)
-        assert callable(server.follow_up)
-
-        # Verify they have @mcp.tool() decorator
         assert hasattr(mcp, "_tool_manager")
-        tool_names = list(mcp._tool_manager._tools.keys())
+        tool_names = set(mcp._tool_manager._tools.keys())
 
-        # Should have exactly 5 tools
-        assert len(tool_names) == 5, (
-            f"Expected 5 tools, got {len(tool_names)}: {tool_names}"
-        )
-
-        # Should have exactly these tools
-        expected_tools = {"deep_research", "ask", "reason", "search", "follow_up"}
-        actual_tools = set(tool_names)
-        assert actual_tools == expected_tools, (
-            f"Expected {expected_tools}, got {actual_tools}"
-        )
+        required = {"deep_research", "ask", "reason", "search", "follow_up"}
+        missing = required - tool_names
+        assert not missing, f"missing registered tools: {missing}"
 
 
 class TestDeepResearchCallable:
