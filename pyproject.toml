@@ -1,7 +1,7 @@
 [project]
 name = "perplexity-deep-research"
-version = "0.2.0"
-description = "Perplexity Deep Research MCP server with Chrome cookie extraction and curl_cffi (macOS & Linux)"
+version = "0.3.0"
+description = "Perplexity Deep Research + Grok chat MCP server (macOS & Linux)"
 requires-python = ">=3.12"
 dependencies = [
     "curl-cffi>=0.7.0",
