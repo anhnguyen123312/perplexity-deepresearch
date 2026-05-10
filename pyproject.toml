@@ -11,6 +11,7 @@ dependencies = [
     "pydantic>=2.9.0",
     "secretstorage>=3.3.0; sys_platform == 'linux'",
     "playwright>=1.59.0",
+    "playwright-stealth>=2.0.0",
 ]
 
 [project.optional-dependencies]
