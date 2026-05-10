@@ -40,9 +40,10 @@ def get_chrome_cookie_path(profile: str = None) -> str:
     Resolves the absolute path to Chrome's Cookies SQLite database file.
     Uses CHROME_PROFILE env var or parameter (default: "Default").
 
-    On macOS: ~/Library/Application Support/Google/Chrome/<profile>/Cookies
-    On Linux: ~/.config/google-chrome/<profile>/Cookies
-              or ~/.config/chromium/<profile>/Cookies
+    On macOS:   ~/Library/Application Support/Google/Chrome/<profile>/Cookies
+    On Windows: %LOCALAPPDATA%\\Google\\Chrome\\User Data\\<profile>\\[Network\\]Cookies
+    On Linux:   ~/.config/google-chrome/<profile>/Cookies
+                or ~/.config/chromium/<profile>/Cookies
 
     Args:
         profile: Chrome profile name (e.g., "Default", "Profile 1")
@@ -59,6 +60,9 @@ def get_chrome_cookie_path(profile: str = None) -> str:
 
     if sys.platform == "darwin":
         bases = [Path.home() / "Library/Application Support/Google/Chrome"]
+    elif sys.platform == "win32":
+        local_app_data = os.environ.get("LOCALAPPDATA", str(Path.home() / "AppData" / "Local"))
+        bases = [Path(local_app_data) / "Google" / "Chrome" / "User Data"]
     elif sys.platform.startswith("linux"):
         bases = [
             Path.home() / ".config/google-chrome",
@@ -68,9 +72,10 @@ def get_chrome_cookie_path(profile: str = None) -> str:
         bases = [Path.home() / "Library/Application Support/Google/Chrome"]
 
     for base in bases:
-        cookie_path = base / profile / "Cookies"
-        if cookie_path.exists():
-            return str(cookie_path.resolve())
+        # Newer Chrome stores cookies under Network/ subdirectory
+        for subpath in [base / profile / "Network" / "Cookies", base / profile / "Cookies"]:
+            if subpath.exists():
+                return str(subpath.resolve())
 
     # Build helpful error message with all paths checked
     checked = [str(base / profile / "Cookies") for base in bases]
@@ -244,6 +249,34 @@ def _extract_cookies_linux_native(cookie_db_path: str) -> dict:
     return cookies
 
 
+def _extract_cookies_windows_native(cookie_db_path: str) -> dict:
+    """
+    Extract cookies on Windows.
+
+    Chrome 127+ uses App-Bound Encryption (v20) that blocks direct
+    decryption. On Windows the cookies are obtained via setup_cookies.py
+    (interactive) which saves a normalized cookies.json that get_cookies()
+    reads through the standard load_cookies() path.
+
+    This function tries rookiepy as a best-effort fallback (requires admin).
+
+    Raises:
+        CookieExtractionError: If no cookies available
+    """
+    try:
+        import rookiepy
+
+        raw_cookies = rookiepy.chrome(domains=["perplexity.ai"])
+        return {c["name"]: c["value"] for c in raw_cookies}
+    except (RuntimeError, ImportError, Exception) as e:
+        raise CookieExtractionError(
+            "Chrome 127+ on Windows uses App-Bound Encryption.\n"
+            "Run the interactive setup to provide your session cookie:\n"
+            "  python setup_cookies.py\n"
+            "(Located in the perplexity-deepresearch directory)"
+        )
+
+
 def extract_cookies_raw(password: str | None = None) -> dict:
     """
     Extract cookies from Chrome.
@@ -263,6 +296,10 @@ def extract_cookies_raw(password: str | None = None) -> dict:
         CookieExtractionError: If cookie extraction fails
     """
     cookie_path = get_chrome_cookie_path()
+
+    # On Windows, use native DPAPI decryption (pycookiecheat doesn't support Windows)
+    if sys.platform == "win32":
+        return _extract_cookies_windows_native(cookie_path)
 
     # On Linux, try native decryption first (handles v11 + DB v24)
     if sys.platform.startswith("linux"):

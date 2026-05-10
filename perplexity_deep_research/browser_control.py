@@ -4,7 +4,7 @@ Cross-platform browser control functions.
 Provides Chrome detection, interactive/non-interactive prompting,
 quit/relaunch functionality, and structured result tracking.
 
-Supports macOS (AppleScript) and Linux (pgrep/pkill).
+Supports macOS (AppleScript), Linux (pgrep/pkill), and Windows (tasklist/taskkill).
 """
 
 import os
@@ -36,6 +36,10 @@ def _is_macos() -> bool:
 
 def _is_linux() -> bool:
     return sys.platform.startswith("linux")
+
+
+def _is_windows() -> bool:
+    return sys.platform == "win32"
 
 
 def _find_chrome_process_name() -> str | None:
@@ -80,6 +84,23 @@ def _find_chrome_command() -> str | None:
     return None
 
 
+def _find_chrome_exe_windows() -> str | None:
+    """Find the Chrome executable on Windows.
+
+    Returns:
+        str: Path to chrome.exe if found, None otherwise
+    """
+    candidates = [
+        os.path.join(os.environ.get("PROGRAMFILES", r"C:\Program Files"), "Google", "Chrome", "Application", "chrome.exe"),
+        os.path.join(os.environ.get("PROGRAMFILES(X86)", r"C:\Program Files (x86)"), "Google", "Chrome", "Application", "chrome.exe"),
+        os.path.join(os.environ.get("LOCALAPPDATA", ""), "Google", "Chrome", "Application", "chrome.exe"),
+    ]
+    for path in candidates:
+        if path and Path(path).exists():
+            return path
+    return None
+
+
 def is_chrome_running() -> bool:
     """Check if Google Chrome is currently running.
 
@@ -98,6 +119,17 @@ def is_chrome_running() -> bool:
                 timeout=5,
             )
             return result.stdout.strip().lower() == "true"
+        except (subprocess.TimeoutExpired, subprocess.SubprocessError):
+            return False
+    elif _is_windows():
+        try:
+            result = subprocess.run(
+                ["tasklist", "/FI", "IMAGENAME eq chrome.exe", "/NH"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            return "chrome.exe" in result.stdout.lower()
         except (subprocess.TimeoutExpired, subprocess.SubprocessError):
             return False
     elif _is_linux():
@@ -162,6 +194,16 @@ def quit_chrome() -> bool:
             )
         except (subprocess.TimeoutExpired, subprocess.SubprocessError):
             return False
+    elif _is_windows():
+        try:
+            subprocess.run(
+                ["taskkill", "/F", "/IM", "chrome.exe"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+        except (subprocess.TimeoutExpired, subprocess.SubprocessError):
+            return False
     elif _is_linux():
         proc_name = _find_chrome_process_name()
         if not proc_name:
@@ -209,6 +251,19 @@ def relaunch_chrome() -> bool:
                 timeout=5,
             )
         except (subprocess.TimeoutExpired, subprocess.SubprocessError):
+            return False
+    elif _is_windows():
+        chrome_exe = _find_chrome_exe_windows()
+        if not chrome_exe:
+            return False
+        try:
+            subprocess.Popen(
+                [chrome_exe],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                close_fds=True,
+            )
+        except (OSError, subprocess.SubprocessError):
             return False
     elif _is_linux():
         chrome_cmd = _find_chrome_command()
@@ -264,11 +319,14 @@ def prompt_keychain_password() -> str | None:
     On macOS, uses a secure AppleScript dialog (Keychain password).
     On Linux, uses terminal getpass (GNOME Keyring / kwallet password not
     typically required as pycookiecheat handles D-Bus Secret Service).
+    On Windows, returns None (DPAPI handles decryption transparently).
 
     Returns:
         str: Password entered by user, or None if cancelled
     """
-    if _is_macos():
+    if _is_windows():
+        return None  # DPAPI handles decryption transparently
+    elif _is_macos():
         script = """
         tell application "System Events"
             activate
@@ -310,11 +368,14 @@ def check_full_disk_access() -> bool:
 
     On macOS, checks Full Disk Access permission.
     On Linux, checks if the Chrome cookie file is readable.
+    On Windows, not applicable (always returns True).
 
     Returns:
         bool: True if has access, False otherwise
     """
-    if _is_macos():
+    if _is_windows():
+        return True
+    elif _is_macos():
         cookie_path = (
             Path.home() / "Library/Application Support/Google/Chrome/Default/Cookies"
         )
@@ -349,8 +410,11 @@ def show_full_disk_access_dialog():
 
     On macOS, shows an AppleScript dialog and opens System Settings.
     On Linux, prints instructions to stderr.
+    On Windows, not applicable (no-op).
     """
-    if _is_macos():
+    if _is_windows():
+        return
+    elif _is_macos():
         script = """
         tell application "System Events"
             activate

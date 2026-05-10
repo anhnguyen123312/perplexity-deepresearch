@@ -6,6 +6,7 @@ Modify these values to customize behavior without changing core code.
 """
 
 import os
+import sys
 from pathlib import Path
 from sqlite3 import OperationalError
 
@@ -77,8 +78,9 @@ def get_cookies_file_path() -> Path:
 
     Resolution order:
     1. PERPLEXITY_COOKIES_FILE env var (absolute path)
-    2. XDG_DATA_HOME/perplexity-deep-research/cookies.json (Linux/macOS standard)
-    3. ~/.local/share/perplexity-deep-research/cookies.json (fallback)
+    2. Platform-appropriate data directory:
+       - Windows: %LOCALAPPDATA%/perplexity-deep-research/cookies.json
+       - macOS/Linux: XDG_DATA_HOME or ~/.local/share
 
     This ensures consistent location regardless of working directory.
     Critical for test isolation - pytest fixtures set env vars before calls.
@@ -90,9 +92,12 @@ def get_cookies_file_path() -> Path:
     if env_path := os.environ.get("PERPLEXITY_COOKIES_FILE"):
         return Path(env_path)
 
-    # 2. XDG standard location (works for MCP stdio mode)
-    xdg_data = os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share"))
-    return Path(xdg_data) / "perplexity-deep-research" / "cookies.json"
+    # 2. Platform-appropriate data directory
+    if sys.platform == "win32":
+        base = os.environ.get("LOCALAPPDATA", str(Path.home() / "AppData" / "Local"))
+    else:
+        base = os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share"))
+    return Path(base) / "perplexity-deep-research" / "cookies.json"
 
 
 def is_database_locked_error(error: Exception) -> bool:
