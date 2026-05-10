@@ -11,6 +11,7 @@ from .grok.config import (
     MODE_GROK_4_3_BETA,
     MODE_HEAVY as GROK_MODE_HEAVY,
 )
+from .grok.statsig import capture_statsig_id_via_chrome
 
 # Initialize FastMCP server
 mcp = FastMCP("Perplexity Deep Research")
@@ -238,6 +239,20 @@ def grok_expert(query: str) -> dict:
     """
     try:
         return get_grok_client().search(query=query, mode=GROK_MODE_EXPERT)
+    except Exception as e:
+        return {"error": f"{type(e).__name__}: {e}"}
+
+
+@mcp.tool()
+def grok_refresh_statsig() -> dict:
+    """Force-refresh the cached x-statsig-id by opening Chrome via Playwright.
+
+    The cached id is reused indefinitely; only call this when grok_search
+    returns a 403 anti-bot error or after a long idle period.
+    """
+    try:
+        sid = capture_statsig_id_via_chrome()
+        return {"status": "ok", "statsig_id_prefix": sid[:24] + "…"}
     except Exception as e:
         return {"error": f"{type(e).__name__}: {e}"}
 

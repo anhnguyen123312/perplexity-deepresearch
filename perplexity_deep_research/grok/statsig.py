@@ -1,13 +1,22 @@
 """Capture and cache x-statsig-id required by grok.com chat endpoint.
 
-The UI generates `x-statsig-id` from a heavily obfuscated webpack module that
-takes (URL pathname, HTTP method) and returns a base64 string. We bypass the
-JS by:
-  1. Launching the user's real Chrome via Playwright (channel="chrome").
-  2. Submitting a tiny chat in grok.com and intercepting the request headers.
-  3. Caching the captured x-statsig-id keyed by (pathname, method).
+Strategy: capture once, use forever (until server returns 403 anti-bot).
 
-The id is path+method-bound and stable across requests. Reuse from curl_cffi.
+The UI generates `x-statsig-id` via a heavily obfuscated Statsig webpack
+module that no public client has reverse-engineered to pure code. Confirmed
+by reviewing 10+ OSS grok clients (Grok3-Proxy, chenyme/grok2api, boykopovar
+/Grok3API, …) — all harvest via browser. Empirically the same captured id
+is reusable for hours/days across many requests, so it behaves as a session
+fingerprint, not a per-request signature.
+
+Capture flow:
+  1. Launch the user's real Chrome via Playwright (channel="chrome", headless).
+  2. Submit a tiny chat in grok.com and intercept the request headers.
+  3. Cache the captured x-statsig-id keyed by (pathname, method).
+
+Refresh policy: cache is trusted for 1 year. The client also auto-refreshes
+on a 403 anti-bot response. Users can force-refresh via
+`get_statsig_id(refresh=True)` or the MCP tool `grok_refresh_statsig`.
 """
 
 from __future__ import annotations
@@ -20,8 +29,9 @@ from .config import get_statsig_cache_path
 from .cookies import get_grok_cookies
 
 
-# How long a captured id is trusted before re-capturing.
-CACHE_TTL_SECS = 24 * 60 * 60  # 24h
+# Effectively "forever" — captured ids are session fingerprints, not
+# per-request signatures, so reuse is safe until the server invalidates.
+CACHE_TTL_SECS = 365 * 24 * 60 * 60  # 1 year
 
 
 def _read_cache() -> dict:
