@@ -1,7 +1,7 @@
 [project]
 name = "perplexity-deep-research"
-version = "0.2.0"
-description = "Perplexity Deep Research MCP server with Chrome cookie extraction and curl_cffi (macOS, Linux & Windows)"
+version = "0.3.0"
+description = "Perplexity Deep Research + Grok chat MCP server (macOS, Linux & Windows)"
 requires-python = ">=3.12"
 dependencies = [
     "curl-cffi>=0.7.0",
@@ -11,6 +11,7 @@ dependencies = [
     "pydantic>=2.9.0",
     "secretstorage>=3.3.0; sys_platform == 'linux'",
     "playwright>=1.59.0",
+    "playwright-stealth>=2.0.0",
     "rookiepy>=0.5.0; sys_platform == 'win32'",
     "pywin32>=300; sys_platform == 'win32'",
 ]

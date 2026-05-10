@@ -1,14 +1,24 @@
-"""MCP server for Perplexity Deep Research with 5 tools."""
+"""MCP server for Perplexity Deep Research + Grok chat tools."""
 
 from mcp.server.fastmcp import FastMCP
 
 from .client import PerplexityClient
+from .grok.client import GrokClient
+from .grok.config import (
+    MODE_AUTO as GROK_MODE_AUTO,
+    MODE_EXPERT as GROK_MODE_EXPERT,
+    MODE_FAST as GROK_MODE_FAST,
+    MODE_GROK_4_3_BETA,
+    MODE_HEAVY as GROK_MODE_HEAVY,
+)
+from .grok.statsig import capture_statsig_id_via_chrome
 
 # Initialize FastMCP server
 mcp = FastMCP("Perplexity Deep Research")
 
-# Lazy singleton for client
+# Lazy singletons
 _client: PerplexityClient | None = None
+_grok: GrokClient | None = None
 
 
 def get_client() -> PerplexityClient:
@@ -17,6 +27,14 @@ def get_client() -> PerplexityClient:
     if _client is None:
         _client = PerplexityClient()
     return _client
+
+
+def get_grok_client() -> GrokClient:
+    """Get or create GrokClient singleton."""
+    global _grok
+    if _grok is None:
+        _grok = GrokClient()
+    return _grok
 
 
 @mcp.tool()
@@ -179,6 +197,79 @@ def follow_up(query: str, backend_uuid: str) -> dict:
         )
     except Exception as e:
         return {"error": str(e)}
+
+
+@mcp.tool()
+def grok_search(query: str, mode: str = MODE_GROK_4_3_BETA) -> dict:
+    """Send `query` to grok.com using the requested mode and return the answer.
+
+    Args:
+        query: The user prompt.
+        mode: One of "auto", "fast", "expert", "heavy",
+            or "grok-420-computer-use-sa" (Grok 4.3 beta — default).
+
+    Returns:
+        dict with `answer`, `conversation_id`, `response_id`, `mode`,
+        `elapsed_secs`, `stream_lines`. On failure: `{"error": ...}`.
+    """
+    try:
+        return get_grok_client().search(query=query, mode=mode)
+    except Exception as e:
+        return {"error": f"{type(e).__name__}: {e}"}
+
+
+@mcp.tool()
+def grok_4_3(query: str) -> dict:
+    """Shortcut: ask Grok 4.3 (beta) directly.
+
+    Equivalent to ``grok_search(query, mode="grok-420-computer-use-sa")``.
+    """
+    try:
+        return get_grok_client().search(query=query, mode=MODE_GROK_4_3_BETA)
+    except Exception as e:
+        return {"error": f"{type(e).__name__}: {e}"}
+
+
+@mcp.tool()
+def grok_expert(query: str) -> dict:
+    """Shortcut: ask Grok Expert mode (UI: "Chuyên gia / Suy nghĩ sâu").
+
+    Expert thinks longer before answering. Equivalent to
+    ``grok_search(query, mode="expert")``.
+    """
+    try:
+        return get_grok_client().search(query=query, mode=GROK_MODE_EXPERT)
+    except Exception as e:
+        return {"error": f"{type(e).__name__}: {e}"}
+
+
+@mcp.tool()
+def grok_refresh_statsig() -> dict:
+    """Force-refresh the cached x-statsig-id by opening Chrome via Playwright.
+
+    The cached id is reused indefinitely; only call this when grok_search
+    returns a 403 anti-bot error or after a long idle period.
+    """
+    try:
+        sid = capture_statsig_id_via_chrome()
+        return {"status": "ok", "statsig_id_prefix": sid[:24] + "…"}
+    except Exception as e:
+        return {"error": f"{type(e).__name__}: {e}"}
+
+
+@mcp.tool()
+def grok_modes() -> dict:
+    """List the supported grok.com mode IDs and their UI titles."""
+    return {
+        "modes": {
+            GROK_MODE_AUTO: "Auto (Chooses Fast or Expert)",
+            GROK_MODE_FAST: "Fast (Quick responses)",
+            GROK_MODE_EXPERT: "Expert / Chuyên gia (Suy nghĩ sâu — thinks hard)",
+            GROK_MODE_HEAVY: "Heavy (requires SuperGrok Heavy tier)",
+            MODE_GROK_4_3_BETA: "Grok 4.3 (beta — early access)",
+        },
+        "default": MODE_GROK_4_3_BETA,
+    }
 
 
 def main():

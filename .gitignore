@@ -47,3 +47,13 @@ htmlcov/
 cookies.json
 .env
 .env.local
+
+# Local tool / agent state (Playwright cache, OMC plugin, exploration scratch)
+.cache/
+.omc/
+src/
+
+# Auto-generated CLAUDE.md mem placeholders in subdirectories
+# (the root CLAUDE.md remains tracked)
+perplexity_deep_research/CLAUDE.md
+tests/CLAUDE.md
