@@ -8,6 +8,7 @@ for Chrome impersonation and automatic cookie refresh on authentication errors.
 import json
 import random
 import time
+from datetime import datetime, timezone
 from uuid import uuid4
 
 from curl_cffi import requests
@@ -22,7 +23,52 @@ from .config import (
     ENDPOINT_SSE_ASK,
     MAX_RETRIES,
     REQUEST_TIMEOUT,
+    SSE_REQUEST_HEADERS,
+    SUPPORTED_BLOCK_USE_CASES,
+    SUPPORTED_FEATURES,
 )
+
+
+def _local_iana_timezone() -> str:
+    """
+    Return the local IANA timezone name (e.g. ``Asia/Saigon``).
+
+    Perplexity's server rejects offset-style names like ``+07`` with a generic
+    "Error in processing query." failure, so we resolve a real IANA zone via
+    ``/etc/localtime`` or the ``TZ`` env var. Falls back to ``UTC`` only as a
+    last resort.
+    """
+    import os
+    from pathlib import Path
+
+    tz_env = os.environ.get("TZ")
+    if tz_env and "/" in tz_env:
+        return tz_env
+
+    localtime = Path("/etc/localtime")
+    if localtime.is_symlink():
+        target = os.readlink(localtime)
+        # macOS: /var/db/timezone/zoneinfo/Asia/Saigon
+        # Linux: /usr/share/zoneinfo/Asia/Saigon
+        marker = "zoneinfo/"
+        if marker in target:
+            return target.split(marker, 1)[1]
+        # Some distros use zoneinfo.default/...
+        marker2 = "zoneinfo.default/"
+        if marker2 in target:
+            return target.split(marker2, 1)[1]
+
+    try:
+        from zoneinfo import ZoneInfo  # noqa: F401
+
+        tz = datetime.now(timezone.utc).astimezone().tzinfo
+        key = getattr(tz, "key", None)
+        if key and "/" in key:
+            return key
+    except Exception:
+        pass
+
+    return "UTC"
 
 logging.basicConfig(
     level=logging.INFO,
@@ -124,38 +170,82 @@ class PerplexityClient:
 
         return response
 
-    def parse_sse_response(self, response_stream) -> dict:
+    def _has_final_answer(self, chunks: list[dict]) -> bool:
+        return any(c.get("answer") for c in chunks)
+
+    def _finalize_chunks(self, chunks: list[dict]) -> dict:
         """
-        Parse SSE stream from Perplexity API.
+        Drive the reconnect loop until a chunk has an extracted answer.
 
-        Implements the Answer Extraction Algorithm from plan lines 482-542.
-
-        Args:
-            response_stream: curl_cffi response with stream=True
-
-        Returns:
-            dict: Final parsed response with 'answer', 'backend_uuid', 'text'
-
-        Raises:
-            PerplexityError: If no valid response or answer found
+        Async modes (deep research / ASI) finish the initial stream with
+        ``status=PENDING`` + ``reconnectable=true``; the actual answer arrives
+        on a follow-up POST to ``/rest/sse/perplexity_ask/reconnect/{uuid}``
+        with the last cursor. We retry until either an answer surfaces or the
+        server reports a terminal failure.
         """
-        chunks = []
+        if not chunks:
+            raise PerplexityError("No response received from Perplexity API")
+
+        max_reconnects = 60  # ~10 minutes at 10s intervals
+        attempts = 0
+        while not self._has_final_answer(chunks):
+            last = chunks[-1]
+            status = last.get("status")
+            if status == "FAILED":
+                raise PerplexityError(
+                    f"Perplexity returned FAILED: {last.get('text') or last.get('_extras')}"
+                )
+            if not last.get("reconnectable") or not last.get("backend_uuid"):
+                # Stream ended without answer and we cannot reconnect.
+                raise PerplexityError("No answer found in Perplexity response")
+            if attempts >= max_reconnects:
+                raise PerplexityError("Perplexity reconnect loop timed out")
+
+            backend_uuid = last["backend_uuid"]
+            cursor = last.get("cursor")
+            reconnect_url = f"{ENDPOINT_SSE_ASK}/reconnect/{backend_uuid}"
+            body = {"cursor": cursor, "reconnectInitialSnapshot": True}
+
+            headers = dict(SSE_REQUEST_HEADERS)
+            headers["x-request-id"] = backend_uuid
+
+            time.sleep(2.0)  # backoff between reconnects
+            response = self._request_with_retry(
+                "POST", reconnect_url, json=body, stream=True, headers=headers
+            )
+            new_chunks = self._collect_events(response)
+            if not new_chunks:
+                attempts += 1
+                continue
+            chunks.extend(new_chunks)
+            attempts += 1
+
+        # Find the chunk that carries the answer; fall back to the last.
+        for c in reversed(chunks):
+            if c.get("answer"):
+                return c
+        return chunks[-1]
+
+    def _collect_events(self, response_stream) -> list[dict]:
+        """
+        Read message events from an SSE stream until ``end_of_stream``.
+
+        Side effect: parses the nested ``text`` field (legacy step list) and
+        attaches ``answer`` to any chunk that contains a ``FINAL`` step.
+        """
+        chunks: list[dict] = []
 
         for chunk in response_stream.iter_lines(delimiter=b"\r\n\r\n"):
             content = chunk.decode("utf-8")
 
             if content.startswith("event: message\r\n"):
                 try:
-                    # Parse JSON after "event: message\r\ndata: " prefix
-                    json_str = content[len("event: message\r\ndata: ") :]
+                    json_str = content[len("event: message\r\ndata: "):]
                     content_json = json.loads(json_str)
 
-                    # Parse nested 'text' field (contains step list)
                     if "text" in content_json and content_json["text"]:
                         try:
                             text_parsed = json.loads(content_json["text"])
-
-                            # Extract answer from FINAL step
                             if isinstance(text_parsed, list):
                                 for step in text_parsed:
                                     if step.get("step_type") == "FINAL":
@@ -164,11 +254,10 @@ class PerplexityClient:
                                             answer_data = json.loads(
                                                 final_content["answer"]
                                             )
-                                            content_json["answer"] = answer_data.get(
-                                                "answer", ""
+                                            content_json["answer"] = (
+                                                answer_data.get("answer", "")
                                             )
                                             break
-
                             content_json["text"] = text_parsed
                         except (json.JSONDecodeError, TypeError, KeyError):
                             pass
@@ -180,14 +269,22 @@ class PerplexityClient:
             elif content.startswith("event: end_of_stream\r\n"):
                 break
 
+        return chunks
+
+    def parse_sse_response(self, response_stream) -> dict:
+        """
+        Parse SSE stream and return the final answer-bearing response.
+
+        Kept for backwards compatibility with tests; new code should call
+        ``_collect_events`` directly so callers can drive the reconnect loop.
+        """
+        chunks = self._collect_events(response_stream)
         if not chunks:
             raise PerplexityError("No response received from Perplexity API")
 
         final_response = chunks[-1]
-
         if "answer" not in final_response or not final_response["answer"]:
             raise PerplexityError("No answer found in Perplexity response")
-
         return final_response
 
     def extract_citations(self, response: dict) -> list[str]:
@@ -230,6 +327,65 @@ class PerplexityClient:
 
         return sources[:10]  # Final cap at 10 unique URLs
 
+    def _build_payload(
+        self,
+        query: str,
+        payload_mode: str,
+        model_preference: str,
+        sources: list[str],
+        language: str,
+        follow_up: str | None,
+    ) -> dict:
+        """
+        Build the request payload that matches the perplexity.ai web client.
+
+        Field set captured from a live web session on 2026-05-11. Most flags
+        mirror the web app's defaults; deviating from them risks the server
+        returning an alternate response shape that ``parse_sse_response``
+        no longer understands.
+        """
+        frontend_uuid = str(uuid4())
+        params = {
+            "attachments": [],
+            "language": language,
+            "timezone": _local_iana_timezone(),
+            "search_focus": "internet",
+            "sources": sources,
+            "frontend_uuid": frontend_uuid,
+            "mode": payload_mode,
+            "model_preference": model_preference,
+            "is_related_query": False,
+            "is_sponsored": False,
+            "frontend_context_uuid": str(uuid4()),
+            "prompt_source": "user",
+            "query_source": "home",
+            "is_incognito": False,
+            "time_from_first_type": random.randint(800, 2500),
+            "local_search_enabled": False,
+            "use_schematized_api": True,
+            "send_back_text_in_streaming_api": False,
+            "supported_block_use_cases": list(SUPPORTED_BLOCK_USE_CASES),
+            "client_coordinates": None,
+            "mentions": [],
+            "dsl_query": query,
+            "skip_search_enabled": True,
+            "is_nav_suggestions_disabled": False,
+            "source": "default",
+            "always_search_override": False,
+            "override_no_search": False,
+            "client_search_results_cache_key": frontend_uuid,
+            "should_ask_for_mcp_tool_confirmation": True,
+            "browser_agent_allow_once_from_toggle": False,
+            "force_enable_browser_agent": False,
+            "supported_features": list(SUPPORTED_FEATURES),
+            "extended_context": False,
+            "version": API_VERSION,
+            "rum_session_id": str(uuid4()),
+        }
+        if follow_up:
+            params["last_backend_uuid"] = follow_up
+        return {"query_str": query, "params": params}
+
     def search(
         self,
         query: str,
@@ -243,7 +399,7 @@ class PerplexityClient:
 
         Args:
             query: The user's question
-            mode: Logical mode ("deep research", "pro", "auto")
+            mode: Logical mode ("deep research", "pro", "reasoning", "auto")
             sources: List of sources (e.g., ["web"])
             language: Language code (e.g., "en-US")
             follow_up: Optional backend_uuid for follow-up queries
@@ -251,41 +407,41 @@ class PerplexityClient:
         Returns:
             dict: Response with 'answer', 'citations', 'backend_uuid'
         """
-        # Mode/model mapping
+        # Mode/model mapping (verified against live perplexity.ai web client
+        # 2026-05-11: Pro = copilot/pplx_pro confirmed; deep research now uses
+        # the asi/pplx_asi pair surfaced under "Advanced research" in the UI).
         mode_mapping = {
-            "deep research": ("copilot", "pplx_alpha"),
+            "deep research": ("asi", "pplx_asi"),
             "pro": ("copilot", "pplx_pro"),
             "reasoning": ("copilot", "r1"),
             "auto": ("concise", "turbo"),
         }
         payload_mode, model_preference = mode_mapping[mode]
+        payload = self._build_payload(
+            query=query,
+            payload_mode=payload_mode,
+            model_preference=model_preference,
+            sources=sources,
+            language=language,
+            follow_up=follow_up,
+        )
 
-        # Build payload (plan lines 625-653)
-        payload = {
-            "query_str": query,
-            "params": {
-                "attachments": [],
-                "frontend_context_uuid": str(uuid4()),
-                "frontend_uuid": str(uuid4()),
-                "is_incognito": False,
-                "language": language,
-                "last_backend_uuid": follow_up,  # None or string UUID
-                "mode": payload_mode,
-                "model_preference": model_preference,
-                "source": "default",
-                "sources": sources,
-                "version": API_VERSION,
-            },
-        }
+        per_request_headers = dict(SSE_REQUEST_HEADERS)
+        per_request_headers["x-request-id"] = payload["params"]["frontend_uuid"]
 
         # Make request with retry on transient errors
         last_error = None
         for attempt in range(MAX_RETRIES + 1):
             try:
                 response = self._request_with_retry(
-                    "POST", ENDPOINT_SSE_ASK, json=payload, stream=True
+                    "POST",
+                    ENDPOINT_SSE_ASK,
+                    json=payload,
+                    stream=True,
+                    headers=per_request_headers,
                 )
-                parsed = self.parse_sse_response(response)
+                chunks = self._collect_events(response)
+                parsed = self._finalize_chunks(chunks)
                 citations = self.extract_citations(parsed)
 
                 return {
