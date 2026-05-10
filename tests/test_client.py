@@ -130,7 +130,7 @@ class TestClientUsesDefaultHeaders:
             PerplexityClient()
 
             call_kwargs = mock_session.call_args[1]
-            assert len(call_kwargs["headers"]) == 20
+            assert len(call_kwargs["headers"]) == len(DEFAULT_HEADERS)
             assert call_kwargs["headers"] == DEFAULT_HEADERS
 
 
@@ -591,8 +591,8 @@ class TestModeMapping:
             call_args = session_instance.request.call_args
             payload = call_args[1]["json"]
 
-            assert payload["params"]["mode"] == "copilot"
-            assert payload["params"]["model_preference"] == "pplx_alpha"
+            assert payload["params"]["mode"] == "asi"
+            assert payload["params"]["model_preference"] == "pplx_asi"
 
     def test_payload_pro(self, mock_cookies, mock_sse_chunks):
         """Assert mode='copilot', model_preference='pplx_pro'."""

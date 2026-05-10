@@ -31,7 +31,12 @@ def deep_research(
 
     Args:
         query: The research question
-        sources: List of sources to search (default: ["web"])
+        sources: List of sources to search (default: ["web"]). Valid values
+            include built-in sources ("web", "scholar", "social") and any
+            OAuth connector source_id you have linked to your perplexity.ai
+            account (e.g. "github_mcp_direct", "notion_mcp", "slack_direct",
+            "google_drive"). See ``config.SUPPORTED_SOURCES`` for the full
+            list captured on 2026-05-11.
         language: Language code (default: "en-US")
 
     Returns:
@@ -60,7 +65,12 @@ def ask(query: str, sources: list[str] = ["web"], language: str = "en-US") -> di
 
     Args:
         query: The question to ask
-        sources: List of sources to search (default: ["web"])
+        sources: List of sources to search (default: ["web"]). Valid values
+            include built-in sources ("web", "scholar", "social") and any
+            OAuth connector source_id you have linked to your perplexity.ai
+            account (e.g. "github_mcp_direct", "notion_mcp", "slack_direct",
+            "google_drive"). See ``config.SUPPORTED_SOURCES`` for the full
+            list captured on 2026-05-11.
         language: Language code (default: "en-US")
 
     Returns:
@@ -87,7 +97,12 @@ def reason(query: str, sources: list[str] = ["web"], language: str = "en-US") ->
 
     Args:
         query: Analytical question with context and constraints
-        sources: List of sources to search (default: ["web"])
+        sources: List of sources to search (default: ["web"]). Valid values
+            include built-in sources ("web", "scholar", "social") and any
+            OAuth connector source_id you have linked to your perplexity.ai
+            account (e.g. "github_mcp_direct", "notion_mcp", "slack_direct",
+            "google_drive"). See ``config.SUPPORTED_SOURCES`` for the full
+            list captured on 2026-05-11.
         language: Language code (default: "en-US")
 
     Returns:
@@ -116,7 +131,12 @@ def search(query: str, sources: list[str] = ["web"], language: str = "en-US") ->
 
     Args:
         query: The search query
-        sources: List of sources to search (default: ["web"])
+        sources: List of sources to search (default: ["web"]). Valid values
+            include built-in sources ("web", "scholar", "social") and any
+            OAuth connector source_id you have linked to your perplexity.ai
+            account (e.g. "github_mcp_direct", "notion_mcp", "slack_direct",
+            "google_drive"). See ``config.SUPPORTED_SOURCES`` for the full
+            list captured on 2026-05-11.
         language: Language code (default: "en-US")
 
     Returns:
