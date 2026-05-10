@@ -60,7 +60,7 @@ class TestExtractCookiesRaw:
         assert result == raw_cookies
         assert "session_token" not in result  # Raw, not normalized
 
-    def test_extract_cookies_success_linux_native(self, monkeypatch):
+    def test_extract_cookies_success_linux_native(self, monkeypatch, tmp_path):
         """Test successful cookie extraction on Linux using native decryption."""
         raw_cookies = {
             "__Secure-next-auth.session-token": "eyJ0eXAiOiJKV1QiLCJhbGc...",
@@ -69,7 +69,14 @@ class TestExtractCookiesRaw:
 
         import perplexity_deep_research.cookies as cookies_mod
 
+        fake_profile = tmp_path / "Default"
+        fake_profile.mkdir()
+        (fake_profile / "Cookies").touch()
+
         monkeypatch.setattr(cookies_mod.sys, "platform", "linux")
+        monkeypatch.setattr(
+            cookies_mod, "list_chrome_profiles_ordered", lambda: [fake_profile]
+        )
         with patch(
             "perplexity_deep_research.cookies.get_chrome_cookie_path",
             return_value="/fake/Cookies",
@@ -82,7 +89,9 @@ class TestExtractCookiesRaw:
 
         assert result == raw_cookies
 
-    def test_extract_cookies_linux_fallback_to_pycookiecheat(self, monkeypatch):
+    def test_extract_cookies_linux_fallback_to_pycookiecheat(
+        self, monkeypatch, tmp_path
+    ):
         """Test Linux falls back to pycookiecheat when native extraction fails."""
         raw_cookies = {
             "__Secure-next-auth.session-token": "eyJ0eXAiOiJKV1QiLCJhbGc...",
@@ -90,7 +99,14 @@ class TestExtractCookiesRaw:
 
         import perplexity_deep_research.cookies as cookies_mod
 
+        fake_profile = tmp_path / "Default"
+        fake_profile.mkdir()
+        (fake_profile / "Cookies").touch()
+
         monkeypatch.setattr(cookies_mod.sys, "platform", "linux")
+        monkeypatch.setattr(
+            cookies_mod, "list_chrome_profiles_ordered", lambda: [fake_profile]
+        )
         with patch(
             "perplexity_deep_research.cookies.get_chrome_cookie_path",
             return_value="/fake/Cookies",
@@ -721,12 +737,12 @@ class TestGetChromeCookiePath:
         assert "Profile 1" in result
 
 
-class TestExtractCookiesWindowsNative:
-    """Tests for _extract_cookies_windows_native()."""
+class TestExtractCookiesWindowsRookiepy:
+    """Tests for _extract_cookies_windows_rookiepy()."""
 
-    def test_extract_cookies_windows_native_success(self):
-        """rookiepy returns Perplexity cookies → flattened to {name: value}."""
-        from perplexity_deep_research.cookies import _extract_cookies_windows_native
+    def test_extract_cookies_windows_rookiepy_success(self):
+        """rookiepy returns Perplexity cookies → flattened keeping first-seen value."""
+        from perplexity_deep_research.cookies import _extract_cookies_windows_rookiepy
 
         rookiepy_output = [
             {"name": "__Secure-next-auth.session-token", "value": "tok123", "domain": ".perplexity.ai"},
@@ -736,7 +752,7 @@ class TestExtractCookiesWindowsNative:
         fake_rookiepy.chrome.return_value = rookiepy_output
 
         with patch.dict("sys.modules", {"rookiepy": fake_rookiepy}):
-            result = _extract_cookies_windows_native("ignored")
+            result = _extract_cookies_windows_rookiepy("perplexity.ai")
 
         assert result == {
             "__Secure-next-auth.session-token": "tok123",
@@ -744,29 +760,40 @@ class TestExtractCookiesWindowsNative:
         }
         fake_rookiepy.chrome.assert_called_once_with(domains=["perplexity.ai"])
 
-    def test_extract_cookies_windows_native_missing_rookiepy_raises_friendly(self):
-        """Without rookiepy, raise a CookieExtractionError pointing at setup_cookies.py."""
-        from perplexity_deep_research.cookies import _extract_cookies_windows_native
+    def test_extract_cookies_windows_rookiepy_first_value_wins(self):
+        """When the same cookie name appears twice (multi-profile), keep the FIRST one."""
+        from perplexity_deep_research.cookies import _extract_cookies_windows_rookiepy
 
-        # Force the import to fail by injecting a sentinel that raises on attribute access
+        rookiepy_output = [
+            {"name": "__Secure-next-auth.session-token", "value": "good", "domain": ".perplexity.ai"},
+            {"name": "__Secure-next-auth.session-token", "value": "stale", "domain": ".perplexity.ai"},
+        ]
+        fake_rookiepy = MagicMock()
+        fake_rookiepy.chrome.return_value = rookiepy_output
+
+        with patch.dict("sys.modules", {"rookiepy": fake_rookiepy}):
+            result = _extract_cookies_windows_rookiepy("perplexity.ai")
+
+        assert result == {"__Secure-next-auth.session-token": "good"}
+
+    def test_extract_cookies_windows_rookiepy_missing_raises_friendly(self):
+        """Without rookiepy, raise a CookieExtractionError mentioning the install command."""
+        from perplexity_deep_research.cookies import _extract_cookies_windows_rookiepy
+
         with patch.dict("sys.modules", {"rookiepy": None}):
-            with pytest.raises(CookieExtractionError, match="setup_cookies.py"):
-                _extract_cookies_windows_native("ignored")
+            with pytest.raises(CookieExtractionError, match="rookiepy"):
+                _extract_cookies_windows_rookiepy("perplexity.ai")
 
-    def test_extract_cookies_raw_uses_windows_native_on_win32(self, monkeypatch):
-        """extract_cookies_raw on win32 must dispatch to the native helper."""
+    def test_extract_cookies_raw_uses_rookiepy_on_win32(self, monkeypatch):
+        """extract_cookies_raw on win32 must dispatch to the rookiepy helper."""
         import perplexity_deep_research.cookies as cookies_mod
 
         monkeypatch.setattr(cookies_mod.sys, "platform", "win32")
         with patch(
-            "perplexity_deep_research.cookies.get_chrome_cookie_path",
-            return_value=r"C:\fake\Cookies",
-        ):
-            with patch(
-                "perplexity_deep_research.cookies._extract_cookies_windows_native",
-                return_value={"__Secure-next-auth.session-token": "tok"},
-            ) as mock_native:
-                result = extract_cookies_raw()
+            "perplexity_deep_research.cookies._extract_cookies_windows_rookiepy",
+            return_value={"__Secure-next-auth.session-token": "tok"},
+        ) as mock_rookie:
+            result = extract_cookies_raw()
 
         assert result == {"__Secure-next-auth.session-token": "tok"}
-        mock_native.assert_called_once()
+        mock_rookie.assert_called_once_with("perplexity.ai")

@@ -1,4 +1,4 @@
-"""Tests for MCP server tools."""
+"""Tests for MCP server with 5 tools."""
 
 import pytest
 from unittest.mock import Mock, patch, MagicMock
@@ -15,23 +15,23 @@ from perplexity_deep_research.server import (
 
 
 class TestPerplexityToolsRegistered:
-    """The five Perplexity tools must always be registered (Grok tools are
-    optional add-ons that may or may not be present)."""
+    """Test that the core Perplexity tools are registered (Grok tools coexist)."""
 
     def test_perplexity_tools_registered(self):
+        """Assert deep_research, ask, reason, search, follow_up are registered."""
         from perplexity_deep_research import server
 
-        # All five Perplexity tools must exist and be callable
         for name in ("deep_research", "ask", "reason", "search", "follow_up"):
-            assert hasattr(server, name), f"missing tool: {name}"
+            assert hasattr(server, name)
             assert callable(getattr(server, name))
 
         assert hasattr(mcp, "_tool_manager")
         tool_names = set(mcp._tool_manager._tools.keys())
 
-        required = {"deep_research", "ask", "reason", "search", "follow_up"}
-        missing = required - tool_names
-        assert not missing, f"missing registered tools: {missing}"
+        expected = {"deep_research", "ask", "reason", "search", "follow_up"}
+        assert expected.issubset(tool_names), (
+            f"Missing tools: {expected - tool_names}"
+        )
 
 
 class TestDeepResearchCallable:

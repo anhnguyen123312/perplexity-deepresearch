@@ -33,9 +33,102 @@ from .config import (
 from .exceptions import CookieExtractionError
 
 
+def _chrome_user_data_dirs() -> list[Path]:
+    """Return Chrome/Chromium user-data root dirs for the current platform."""
+    if sys.platform == "darwin":
+        return [Path.home() / "Library/Application Support/Google/Chrome"]
+    if sys.platform == "win32":
+        local_app_data = os.environ.get(
+            "LOCALAPPDATA", str(Path.home() / "AppData" / "Local")
+        )
+        return [Path(local_app_data) / "Google" / "Chrome" / "User Data"]
+    if sys.platform.startswith("linux"):
+        return [
+            Path.home() / ".config/google-chrome",
+            Path.home() / ".config/chromium",
+        ]
+    return [Path.home() / "Library/Application Support/Google/Chrome"]
+
+
+def _profile_cookie_db(profile_dir: Path) -> Path | None:
+    """Return the Cookies SQLite path for a profile, or None if absent.
+
+    Newer Chrome stores cookies under ``<profile>/Network/Cookies``;
+    older versions used ``<profile>/Cookies`` directly.
+    """
+    for sub in (profile_dir / "Network" / "Cookies", profile_dir / "Cookies"):
+        if sub.exists():
+            return sub
+    return None
+
+
+def list_chrome_profile_dirs() -> list[Path]:
+    """List every Chrome profile dir that has a Cookies SQLite file.
+
+    Skips ``Guest Profile`` and ``System Profile`` (no useful cookies).
+    Returns paths sorted: ``Default`` first, then ``Profile N`` ordered
+    numerically by N, then anything else alphabetically.
+    """
+    found: list[Path] = []
+    for base in _chrome_user_data_dirs():
+        if not base.exists():
+            continue
+        for entry in base.iterdir():
+            if not entry.is_dir():
+                continue
+            name = entry.name
+            if name in ("Guest Profile", "System Profile"):
+                continue
+            if name == "Default" or name.startswith("Profile "):
+                if _profile_cookie_db(entry) is not None:
+                    found.append(entry)
+
+    def _sort_key(p: Path) -> tuple:
+        n = p.name
+        if n == "Default":
+            return (0, 0, "")
+        if n.startswith("Profile "):
+            try:
+                return (1, int(n.split(" ", 1)[1]), "")
+            except ValueError:
+                return (2, 0, n)
+        return (3, 0, n)
+
+    found.sort(key=_sort_key)
+    return found
+
+
+def list_chrome_profiles_ordered() -> list[Path]:
+    """Profile dirs to try, in priority order.
+
+    Order:
+      1. Profiles named in ``CHROME_PROFILES`` env (comma-separated), in order.
+      2. Otherwise: ``CHROME_PROFILE`` (or ``Default``) first, then every
+         remaining profile from :func:`list_chrome_profile_dirs`.
+
+    If ``CHROME_SCAN_PROFILES=0``, only the explicit/preferred profile is
+    returned (legacy single-profile behavior).
+    """
+    explicit = os.environ.get("CHROME_PROFILES")
+    if explicit:
+        wanted = [s.strip() for s in explicit.split(",") if s.strip()]
+        all_dirs = {p.name: p for p in list_chrome_profile_dirs()}
+        return [all_dirs[name] for name in wanted if name in all_dirs]
+
+    preferred = os.environ.get("CHROME_PROFILE", "Default")
+    all_dirs = list_chrome_profile_dirs()
+    head = [p for p in all_dirs if p.name == preferred]
+
+    if os.environ.get("CHROME_SCAN_PROFILES", "1") == "0":
+        return head
+
+    tail = [p for p in all_dirs if p.name != preferred]
+    return head + tail
+
+
 def get_chrome_cookie_path(profile: str = None) -> str:
     """
-    Resolve Chrome cookie database path (macOS and Linux).
+    Resolve Chrome cookie database path (macOS, Windows, Linux).
 
     Resolves the absolute path to Chrome's Cookies SQLite database file.
     Uses CHROME_PROFILE env var or parameter (default: "Default").
@@ -54,30 +147,14 @@ def get_chrome_cookie_path(profile: str = None) -> str:
     Raises:
         CookieExtractionError: If Chrome cookie file not found
     """
-    import sys
-
     profile = os.environ.get("CHROME_PROFILE", profile or "Default")
 
-    if sys.platform == "darwin":
-        bases = [Path.home() / "Library/Application Support/Google/Chrome"]
-    elif sys.platform == "win32":
-        local_app_data = os.environ.get("LOCALAPPDATA", str(Path.home() / "AppData" / "Local"))
-        bases = [Path(local_app_data) / "Google" / "Chrome" / "User Data"]
-    elif sys.platform.startswith("linux"):
-        bases = [
-            Path.home() / ".config/google-chrome",
-            Path.home() / ".config/chromium",
-        ]
-    else:
-        bases = [Path.home() / "Library/Application Support/Google/Chrome"]
-
+    bases = _chrome_user_data_dirs()
     for base in bases:
-        # Newer Chrome stores cookies under Network/ subdirectory
-        for subpath in [base / profile / "Network" / "Cookies", base / profile / "Cookies"]:
-            if subpath.exists():
-                return str(subpath.resolve())
+        db = _profile_cookie_db(base / profile)
+        if db is not None:
+            return str(db.resolve())
 
-    # Build helpful error message with all paths checked
     checked = [str(base / profile / "Cookies") for base in bases]
     raise CookieExtractionError(
         f"Chrome cookie file not found. Checked: {', '.join(checked)}"
@@ -249,59 +326,65 @@ def _extract_cookies_linux_native(cookie_db_path: str) -> dict:
     return cookies
 
 
-def _extract_cookies_windows_native(cookie_db_path: str) -> dict:
+def _has_perplexity_session(raw: dict) -> bool:
+    """True if the raw cookie dict contains any known Perplexity session token."""
+    return any(v in raw for v in SESSION_TOKEN_VARIANTS)
+
+
+def _extract_cookies_windows_rookiepy(domain: str = "perplexity.ai") -> dict:
     """
-    Extract cookies on Windows.
+    Extract cookies on Windows via rookiepy (auto-scans every Chrome profile).
 
-    Chrome 127+ uses App-Bound Encryption (v20) that blocks direct
-    decryption. On Windows the cookies are obtained via setup_cookies.py
-    (interactive) which saves a normalized cookies.json that get_cookies()
-    reads through the standard load_cookies() path.
-
-    This function tries rookiepy as a best-effort fallback (requires admin).
-
-    Raises:
-        CookieExtractionError: If no cookies available
-    """
-    try:
-        import rookiepy
-
-        raw_cookies = rookiepy.chrome(domains=["perplexity.ai"])
-        return {c["name"]: c["value"] for c in raw_cookies}
-    except (RuntimeError, ImportError, Exception) as e:
-        raise CookieExtractionError(
-            "Chrome 127+ on Windows uses App-Bound Encryption.\n"
-            "Run the interactive setup to provide your session cookie:\n"
-            "  python setup_cookies.py\n"
-            "(Located in the perplexity-deepresearch directory)"
-        )
-
-
-def extract_cookies_raw(password: str | None = None) -> dict:
-    """
-    Extract cookies from Chrome.
-
-    On Linux with v11 encryption, uses native decryption to handle Chrome 130+
-    cookie format. Falls back to pycookiecheat on macOS or when native
-    extraction fails.
+    Chrome 127+ uses App-Bound Encryption (v20). rookiepy iterates every
+    profile under the Chrome User Data folder and merges results. When the
+    same cookie name exists in multiple profiles, the **first** signed-in
+    profile wins (we keep first-seen, unlike dict-collapse which keeps last).
 
     Args:
-        password: Optional keychain password for decryption (macOS only)
+        domain: Cookie domain to filter (e.g. "perplexity.ai", "grok.com")
 
     Returns:
-        dict: Raw cookie dict
+        dict: Raw cookie dict {name: value} from the first profile with a
+              non-empty result for the domain.
 
     Raises:
-        sqlite3.OperationalError: If Chrome is blocking database access
-        CookieExtractionError: If cookie extraction fails
+        CookieExtractionError: If rookiepy is unavailable or returns nothing.
     """
-    cookie_path = get_chrome_cookie_path()
+    try:
+        import rookiepy  # type: ignore
+    except ImportError as e:
+        raise CookieExtractionError(
+            "rookiepy is required on Windows. Install: pip install rookiepy"
+        ) from e
 
-    # On Windows, use native DPAPI decryption (pycookiecheat doesn't support Windows)
-    if sys.platform == "win32":
-        return _extract_cookies_windows_native(cookie_path)
+    try:
+        raw_cookies = rookiepy.chrome(domains=[domain])
+    except Exception as e:
+        raise CookieExtractionError(
+            f"rookiepy failed for {domain}: {e}\n"
+            "Chrome 127+ uses App-Bound Encryption — run setup_cookies.py "
+            "(admin) to extract manually."
+        ) from e
 
-    # On Linux, try native decryption first (handles v11 + DB v24)
+    if not raw_cookies:
+        raise CookieExtractionError(
+            f"No {domain} cookies found in any Chrome profile. Sign in to "
+            f"{domain} in Chrome first, or run setup_cookies.py."
+        )
+
+    # Keep first-seen value per cookie name (rookiepy returns profiles
+    # in order; older flat-dict logic kept the LAST value, which on
+    # multi-profile machines could pick an expired one).
+    out: dict[str, str] = {}
+    for c in raw_cookies:
+        name = c["name"]
+        if name not in out:
+            out[name] = c["value"]
+    return out
+
+
+def _extract_one_profile(cookie_path: str, password: str | None) -> dict:
+    """Extract perplexity.ai cookies from a single profile DB. May raise."""
     if sys.platform.startswith("linux"):
         try:
             return _extract_cookies_linux_native(cookie_path)
@@ -317,6 +400,79 @@ def extract_cookies_raw(password: str | None = None) -> dict:
         browser=BrowserType.CHROME,
         cookie_file=cookie_path,
         password=password,
+    )
+
+
+def extract_cookies_raw(password: str | None = None) -> dict:
+    """
+    Extract cookies from Chrome, scanning multiple profiles when needed.
+
+    Tries profiles in the order returned by :func:`list_chrome_profiles_ordered`
+    (preferred profile first, then every other profile on disk). The first
+    profile whose cookies contain a Perplexity session token wins. If no
+    profile yields a session token, the cookies from the last attempted
+    profile are returned so callers can produce a useful error.
+
+    On Linux with v11 encryption, uses native decryption to handle Chrome 130+
+    cookie format. Falls back to pycookiecheat on macOS or when native
+    extraction fails.
+
+    Args:
+        password: Optional keychain password for decryption (macOS only)
+
+    Returns:
+        dict: Raw cookie dict
+
+    Raises:
+        sqlite3.OperationalError: If Chrome is blocking database access
+        CookieExtractionError: If cookie extraction fails for every profile
+    """
+    # Windows: pycookiecheat / native sqlite paths can't decrypt v20 ABE,
+    # so delegate to rookiepy which handles all profiles + the App-Bound
+    # Encryption key from Local State automatically.
+    if sys.platform == "win32":
+        return _extract_cookies_windows_rookiepy("perplexity.ai")
+
+    profiles = list_chrome_profiles_ordered()
+    if not profiles:
+        # No Chrome profiles found at all — fall back to legacy single-path
+        # resolver so the error message lists every path we checked.
+        cookie_path = get_chrome_cookie_path()
+        return _extract_one_profile(cookie_path, password)
+
+    last_error: Exception | None = None
+    last_raw: dict | None = None
+    last_name: str | None = None
+
+    for profile_dir in profiles:
+        db = _profile_cookie_db(profile_dir)
+        if db is None:
+            continue
+        cookie_path = str(db.resolve())
+        try:
+            raw = _extract_one_profile(cookie_path, password)
+        except OperationalError:
+            raise  # propagate DB-lock for the relaunch handler
+        except Exception as e:
+            last_error = e
+            continue
+
+        last_raw = raw
+        last_name = profile_dir.name
+        if _has_perplexity_session(raw):
+            os.environ.setdefault("CHROME_PROFILE_USED", profile_dir.name)
+            return raw
+
+    if last_raw is not None:
+        # All profiles read OK but none had a session token. Return the last
+        # one so normalize_cookies can raise its informative error.
+        return last_raw
+
+    if last_error is not None:
+        raise last_error
+
+    raise CookieExtractionError(
+        f"No usable Chrome profile found. Tried: {[p.name for p in profiles]}"
     )
 
 
