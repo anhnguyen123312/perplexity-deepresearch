@@ -71,10 +71,14 @@ class TestExtractCookiesRaw:
 
         monkeypatch.setattr(cookies_mod.sys, "platform", "linux")
         with patch(
-            "perplexity_deep_research.cookies._extract_cookies_linux_native"
-        ) as mock_native:
-            mock_native.return_value = raw_cookies
-            result = extract_cookies_raw()
+            "perplexity_deep_research.cookies.get_chrome_cookie_path",
+            return_value="/fake/Cookies",
+        ):
+            with patch(
+                "perplexity_deep_research.cookies._extract_cookies_linux_native"
+            ) as mock_native:
+                mock_native.return_value = raw_cookies
+                result = extract_cookies_raw()
 
         assert result == raw_cookies
 
@@ -88,14 +92,18 @@ class TestExtractCookiesRaw:
 
         monkeypatch.setattr(cookies_mod.sys, "platform", "linux")
         with patch(
-            "perplexity_deep_research.cookies._extract_cookies_linux_native",
-            side_effect=RuntimeError("native failed"),
+            "perplexity_deep_research.cookies.get_chrome_cookie_path",
+            return_value="/fake/Cookies",
         ):
             with patch(
-                "perplexity_deep_research.cookies.chrome_cookies"
-            ) as mock_chrome:
-                mock_chrome.return_value = raw_cookies
-                result = extract_cookies_raw()
+                "perplexity_deep_research.cookies._extract_cookies_linux_native",
+                side_effect=RuntimeError("native failed"),
+            ):
+                with patch(
+                    "perplexity_deep_research.cookies.chrome_cookies"
+                ) as mock_chrome:
+                    mock_chrome.return_value = raw_cookies
+                    result = extract_cookies_raw()
 
         assert result == raw_cookies
 
@@ -644,8 +652,12 @@ class TestGetChromeCookiePath:
         assert isinstance(result, str)
         assert "Profile 1" in result
 
-    def test_get_chrome_cookie_path_not_found(self):
+    def test_get_chrome_cookie_path_not_found(self, monkeypatch, tmp_path):
         """Test that error is raised if Chrome cookie file not found."""
+        # Force a non-existent base regardless of host OS:
+        # POSIX paths: Path.home() → /nonexistent
+        # Windows path: LOCALAPPDATA → tmp_path/empty
+        monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "empty_localappdata"))
         with patch("perplexity_deep_research.cookies.Path.home") as mock_home:
             mock_home.return_value = Path("/nonexistent")
 
@@ -653,3 +665,108 @@ class TestGetChromeCookiePath:
                 CookieExtractionError, match="Chrome cookie file not found"
             ):
                 get_chrome_cookie_path()
+
+    def test_get_chrome_cookie_path_windows_network_subdir(self, monkeypatch, tmp_path):
+        """Windows Chrome 130+ stores cookies under Network/ subdirectory."""
+        monkeypatch.setattr("sys.platform", "win32")
+        local_app_data = tmp_path / "AppData" / "Local"
+        cookie_file = (
+            local_app_data / "Google" / "Chrome" / "User Data" / "Default" / "Network" / "Cookies"
+        )
+        cookie_file.parent.mkdir(parents=True)
+        cookie_file.touch()
+        monkeypatch.setenv("LOCALAPPDATA", str(local_app_data))
+
+        result = get_chrome_cookie_path()
+
+        assert "Network" in result
+        assert result.endswith("Cookies")
+
+    def test_get_chrome_cookie_path_windows_legacy_layout(self, monkeypatch, tmp_path):
+        """Older Chrome on Windows stored Cookies directly under the profile dir."""
+        monkeypatch.setattr("sys.platform", "win32")
+        local_app_data = tmp_path / "AppData" / "Local"
+        cookie_file = (
+            local_app_data / "Google" / "Chrome" / "User Data" / "Default" / "Cookies"
+        )
+        cookie_file.parent.mkdir(parents=True)
+        cookie_file.touch()
+        monkeypatch.setenv("LOCALAPPDATA", str(local_app_data))
+
+        result = get_chrome_cookie_path()
+
+        assert "Network" not in result
+        assert result.endswith("Cookies")
+
+    def test_get_chrome_cookie_path_windows_custom_profile(self, monkeypatch, tmp_path):
+        """CHROME_PROFILE env var should pick a non-Default profile on Windows."""
+        monkeypatch.setattr("sys.platform", "win32")
+        local_app_data = tmp_path / "AppData" / "Local"
+        cookie_file = (
+            local_app_data
+            / "Google"
+            / "Chrome"
+            / "User Data"
+            / "Profile 1"
+            / "Network"
+            / "Cookies"
+        )
+        cookie_file.parent.mkdir(parents=True)
+        cookie_file.touch()
+        monkeypatch.setenv("LOCALAPPDATA", str(local_app_data))
+        monkeypatch.setenv("CHROME_PROFILE", "Profile 1")
+
+        result = get_chrome_cookie_path()
+
+        assert "Profile 1" in result
+
+
+class TestExtractCookiesWindowsNative:
+    """Tests for _extract_cookies_windows_native()."""
+
+    def test_extract_cookies_windows_native_success(self):
+        """rookiepy returns Perplexity cookies → flattened to {name: value}."""
+        from perplexity_deep_research.cookies import _extract_cookies_windows_native
+
+        rookiepy_output = [
+            {"name": "__Secure-next-auth.session-token", "value": "tok123", "domain": ".perplexity.ai"},
+            {"name": "__Secure-next-auth.csrf-token", "value": "csrf456", "domain": ".perplexity.ai"},
+        ]
+        fake_rookiepy = MagicMock()
+        fake_rookiepy.chrome.return_value = rookiepy_output
+
+        with patch.dict("sys.modules", {"rookiepy": fake_rookiepy}):
+            result = _extract_cookies_windows_native("ignored")
+
+        assert result == {
+            "__Secure-next-auth.session-token": "tok123",
+            "__Secure-next-auth.csrf-token": "csrf456",
+        }
+        fake_rookiepy.chrome.assert_called_once_with(domains=["perplexity.ai"])
+
+    def test_extract_cookies_windows_native_missing_rookiepy_raises_friendly(self):
+        """Without rookiepy, raise a CookieExtractionError pointing at setup_cookies.py."""
+        from perplexity_deep_research.cookies import _extract_cookies_windows_native
+
+        # Force the import to fail by injecting a sentinel that raises on attribute access
+        with patch.dict("sys.modules", {"rookiepy": None}):
+            with pytest.raises(CookieExtractionError, match="setup_cookies.py"):
+                _extract_cookies_windows_native("ignored")
+
+    def test_extract_cookies_raw_uses_windows_native_on_win32(self, monkeypatch):
+        """extract_cookies_raw on win32 must dispatch to the native helper."""
+        import perplexity_deep_research.cookies as cookies_mod
+
+        monkeypatch.setattr(cookies_mod.sys, "platform", "win32")
+        with patch(
+            "perplexity_deep_research.cookies.get_chrome_cookie_path",
+            return_value=r"C:\fake\Cookies",
+        ):
+            with patch(
+                "perplexity_deep_research.cookies._extract_cookies_windows_native",
+                return_value={"__Secure-next-auth.session-token": "tok"},
+            ) as mock_native:
+                result = extract_cookies_raw()
+
+        assert result == {"__Secure-next-auth.session-token": "tok"}
+        mock_native.assert_called_once()

@@ -17,6 +17,7 @@ pip install git+https://github.com/anhnguyen123312/perplexity-deepresearch.git
 Add to your Claude Desktop config:
 - **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
 - **Linux**: `~/.config/Claude/claude_desktop_config.json`
+- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
 
 ```json
 {
@@ -66,6 +67,25 @@ Use follow_up to ask: "Tell me more about that"
 1. **Cookie file access** - Chrome cookies are read from `~/.config/google-chrome/` or `~/.config/chromium/`.
 2. **Secret Service** - Cookie decryption uses D-Bus Secret Service (GNOME Keyring / KWallet). Ensure your keyring is unlocked.
 
+### Windows
+Chrome 127+ on Windows uses **App-Bound Encryption** (v20 cookies) which blocks
+direct decryption from outside Chrome. Two paths are supported:
+
+1. **One-shot interactive setup (recommended)**:
+   ```powershell
+   python setup_cookies.py
+   ```
+   Paste the `__Secure-next-auth.session-token` value from Chrome DevTools →
+   Application → Cookies. The cookie is saved to
+   `%LOCALAPPDATA%\perplexity-deep-research\cookies.json` and reused for 24h.
+
+2. **Elevated extraction via rookiepy** (requires admin + `pip install rookiepy`):
+   ```cmd
+   setup_cookies.bat
+   ```
+   Right-click → "Run as administrator". Closes Chrome, extracts the
+   session cookie via `rookiepy`, then reopens Chrome.
+
 Just follow the on-screen instructions - no complex manual configuration needed.
 
 ## ✨ Features
@@ -78,7 +98,7 @@ Just follow the on-screen instructions - no complex manual configuration needed.
 
 ## 📋 Requirements
 
-- **macOS** or **Linux** (including Kali Linux, Ubuntu, Debian, etc.)
+- **macOS**, **Linux** (Kali, Ubuntu, Debian, etc.), or **Windows 10/11**
 - **Python 3.12+**
 - **Google Chrome** or **Chromium**
 - **Perplexity.ai account** (logged in Chrome/Chromium)
@@ -87,6 +107,12 @@ Just follow the on-screen instructions - no complex manual configuration needed.
 
 - `secretstorage` (installed automatically) for GNOME Keyring / D-Bus Secret Service
 - Chrome/Chromium installed via standard package manager
+
+### Windows-specific requirements
+
+- `rookiepy` and `pywin32` (installed automatically via `pyproject.toml`)
+- Chrome 127+ uses App-Bound Encryption — see the **Windows** section under
+  Permissions for the supported setup paths.
 
 ## 🔧 Troubleshooting
 
@@ -154,9 +180,11 @@ perplexity-deep-research
 ### Environment Variables
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `PERPLEXITY_COOKIES_FILE` | Custom cookie file path | `~/.local/share/.../cookies.json` |
+| `PERPLEXITY_COOKIES_FILE` | Custom cookie file path | `~/.local/share/.../cookies.json` (POSIX) · `%LOCALAPPDATA%\perplexity-deep-research\cookies.json` (Windows) |
 | `CHROME_PROFILE` | Chrome profile name | `Default` |
 | `PERPLEXITY_ALLOW_CHROME_QUIT` | Auto-quit Chrome | `0` |
+| `PERPLEXITY_TIMEOUT` | Per-request timeout (s) | `900` |
+| `PERPLEXITY_MAX_RETRIES` | 401/403 cookie-refresh retries | `2` |
 
 ## 📄 License
 

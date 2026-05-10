@@ -19,6 +19,24 @@ from perplexity_deep_research.browser_control import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _default_is_windows_false(request):
+    """Default `_is_windows()` to False so macOS/Linux tests work on a Windows host.
+
+    Windows-specific test classes (`*Windows`) explicitly re-patch `_is_windows`
+    to True inside each test, which supersedes this fixture for the duration
+    of that `with patch(...)` block.
+    """
+    cls = getattr(request.node, "cls", None)
+    if cls is not None and cls.__name__.endswith("Windows"):
+        yield
+        return
+    with patch(
+        "perplexity_deep_research.browser_control._is_windows", return_value=False
+    ):
+        yield
+
+
 class TestIsChromeRunningMacOS:
     def test_is_chrome_running_true(self) -> None:
         mock_result = MagicMock()
@@ -657,3 +675,281 @@ class TestShowFullDiskAccessDialog:
 
         # Should have printed Linux-specific instructions
         assert mock_print.call_count >= 1
+
+
+class TestIsChromeRunningWindows:
+    def test_is_chrome_running_true_windows(self) -> None:
+        mock_result = MagicMock()
+        mock_result.stdout = "chrome.exe                    1234 Console   1   100,000 K\n"
+
+        with patch(
+            "perplexity_deep_research.browser_control._is_macos", return_value=False
+        ):
+            with patch(
+                "perplexity_deep_research.browser_control._is_windows",
+                return_value=True,
+            ):
+                with patch(
+                    "perplexity_deep_research.browser_control._is_linux",
+                    return_value=False,
+                ):
+                    with patch("subprocess.run", return_value=mock_result) as mock_run:
+                        result = is_chrome_running()
+
+        assert result is True
+        call_args = mock_run.call_args[0][0]
+        assert call_args[0] == "tasklist"
+        assert "chrome.exe" in " ".join(call_args)
+
+    def test_is_chrome_running_false_windows(self) -> None:
+        mock_result = MagicMock()
+        # tasklist on Windows prints an info banner when no matches found
+        mock_result.stdout = "INFO: No tasks are running which match the specified criteria.\n"
+
+        with patch(
+            "perplexity_deep_research.browser_control._is_macos", return_value=False
+        ):
+            with patch(
+                "perplexity_deep_research.browser_control._is_windows",
+                return_value=True,
+            ):
+                with patch(
+                    "perplexity_deep_research.browser_control._is_linux",
+                    return_value=False,
+                ):
+                    with patch("subprocess.run", return_value=mock_result):
+                        result = is_chrome_running()
+
+        assert result is False
+
+    def test_is_chrome_running_windows_timeout(self) -> None:
+        with patch(
+            "perplexity_deep_research.browser_control._is_macos", return_value=False
+        ):
+            with patch(
+                "perplexity_deep_research.browser_control._is_windows",
+                return_value=True,
+            ):
+                with patch(
+                    "perplexity_deep_research.browser_control._is_linux",
+                    return_value=False,
+                ):
+                    with patch(
+                        "subprocess.run",
+                        side_effect=subprocess.TimeoutExpired("tasklist", 5),
+                    ):
+                        result = is_chrome_running()
+
+        assert result is False
+
+
+class TestQuitChromeWindows:
+    def test_quit_chrome_windows_success(self) -> None:
+        # First call: taskkill. Subsequent: is_chrome_running poll → false (chrome gone)
+        mock_taskkill = MagicMock()
+        mock_taskkill.stdout = ""
+        mock_check_gone = MagicMock()
+        mock_check_gone.stdout = "INFO: No tasks are running\n"
+
+        with patch(
+            "perplexity_deep_research.browser_control._is_macos", return_value=False
+        ):
+            with patch(
+                "perplexity_deep_research.browser_control._is_windows",
+                return_value=True,
+            ):
+                with patch(
+                    "perplexity_deep_research.browser_control._is_linux",
+                    return_value=False,
+                ):
+                    with patch(
+                        "subprocess.run",
+                        side_effect=[mock_taskkill, mock_check_gone],
+                    ) as mock_run:
+                        with patch("time.sleep"):
+                            result = quit_chrome()
+
+        assert result is True
+        # First call must be taskkill /F /IM chrome.exe
+        first_call = mock_run.call_args_list[0][0][0]
+        assert first_call[0] == "taskkill"
+        assert "/F" in first_call
+        assert "chrome.exe" in first_call
+
+    def test_quit_chrome_windows_subprocess_error(self) -> None:
+        with patch(
+            "perplexity_deep_research.browser_control._is_macos", return_value=False
+        ):
+            with patch(
+                "perplexity_deep_research.browser_control._is_windows",
+                return_value=True,
+            ):
+                with patch(
+                    "perplexity_deep_research.browser_control._is_linux",
+                    return_value=False,
+                ):
+                    with patch(
+                        "subprocess.run",
+                        side_effect=subprocess.SubprocessError("nope"),
+                    ):
+                        result = quit_chrome()
+
+        assert result is False
+
+
+class TestRelaunchChromeWindows:
+    def test_relaunch_chrome_windows_success(self, tmp_path) -> None:
+        chrome_exe = tmp_path / "chrome.exe"
+        chrome_exe.write_bytes(b"")
+
+        mock_running = MagicMock()
+        mock_running.stdout = "chrome.exe  1234 Console  1  100 K\n"
+
+        with patch(
+            "perplexity_deep_research.browser_control._is_macos", return_value=False
+        ):
+            with patch(
+                "perplexity_deep_research.browser_control._is_windows",
+                return_value=True,
+            ):
+                with patch(
+                    "perplexity_deep_research.browser_control._is_linux",
+                    return_value=False,
+                ):
+                    with patch(
+                        "perplexity_deep_research.browser_control._find_chrome_exe_windows",
+                        return_value=str(chrome_exe),
+                    ):
+                        with patch("subprocess.Popen") as mock_popen:
+                            with patch(
+                                "subprocess.run", return_value=mock_running
+                            ):
+                                with patch("time.sleep"):
+                                    result = relaunch_chrome()
+
+        assert result is True
+        mock_popen.assert_called_once()
+        assert mock_popen.call_args[0][0] == [str(chrome_exe)]
+
+    def test_relaunch_chrome_windows_no_exe_found(self) -> None:
+        with patch(
+            "perplexity_deep_research.browser_control._is_macos", return_value=False
+        ):
+            with patch(
+                "perplexity_deep_research.browser_control._is_windows",
+                return_value=True,
+            ):
+                with patch(
+                    "perplexity_deep_research.browser_control._is_linux",
+                    return_value=False,
+                ):
+                    with patch(
+                        "perplexity_deep_research.browser_control._find_chrome_exe_windows",
+                        return_value=None,
+                    ):
+                        result = relaunch_chrome()
+
+        assert result is False
+
+    def test_relaunch_chrome_windows_popen_error(self, tmp_path) -> None:
+        chrome_exe = tmp_path / "chrome.exe"
+        chrome_exe.write_bytes(b"")
+
+        with patch(
+            "perplexity_deep_research.browser_control._is_macos", return_value=False
+        ):
+            with patch(
+                "perplexity_deep_research.browser_control._is_windows",
+                return_value=True,
+            ):
+                with patch(
+                    "perplexity_deep_research.browser_control._is_linux",
+                    return_value=False,
+                ):
+                    with patch(
+                        "perplexity_deep_research.browser_control._find_chrome_exe_windows",
+                        return_value=str(chrome_exe),
+                    ):
+                        with patch(
+                            "subprocess.Popen",
+                            side_effect=OSError("denied"),
+                        ):
+                            result = relaunch_chrome()
+
+        assert result is False
+
+
+class TestFindChromeExeWindows:
+    def test_finds_program_files_install(self, tmp_path, monkeypatch) -> None:
+        from perplexity_deep_research.browser_control import _find_chrome_exe_windows
+
+        prog_files = tmp_path / "Program Files"
+        chrome_exe = prog_files / "Google" / "Chrome" / "Application" / "chrome.exe"
+        chrome_exe.parent.mkdir(parents=True)
+        chrome_exe.write_bytes(b"")
+
+        monkeypatch.setenv("PROGRAMFILES", str(prog_files))
+        monkeypatch.setenv("PROGRAMFILES(X86)", str(tmp_path / "Program Files (x86)"))
+        monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "Local"))
+
+        assert _find_chrome_exe_windows() == str(chrome_exe)
+
+    def test_returns_none_when_not_installed(self, tmp_path, monkeypatch) -> None:
+        from perplexity_deep_research.browser_control import _find_chrome_exe_windows
+
+        monkeypatch.setenv("PROGRAMFILES", str(tmp_path / "pf"))
+        monkeypatch.setenv("PROGRAMFILES(X86)", str(tmp_path / "pfx86"))
+        monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "lad"))
+
+        assert _find_chrome_exe_windows() is None
+
+
+class TestPromptKeychainPasswordWindows:
+    def test_returns_none_on_windows(self) -> None:
+        # On Windows DPAPI handles decryption — no password prompt needed
+        with patch(
+            "perplexity_deep_research.browser_control._is_windows", return_value=True
+        ):
+            with patch(
+                "perplexity_deep_research.browser_control._is_macos", return_value=False
+            ):
+                result = prompt_keychain_password()
+
+        assert result is None
+
+
+class TestCheckFullDiskAccessWindows:
+    def test_returns_true_on_windows(self) -> None:
+        # Windows has no equivalent to macOS Full Disk Access
+        with patch(
+            "perplexity_deep_research.browser_control._is_windows", return_value=True
+        ):
+            with patch(
+                "perplexity_deep_research.browser_control._is_macos", return_value=False
+            ):
+                with patch(
+                    "perplexity_deep_research.browser_control._is_linux",
+                    return_value=False,
+                ):
+                    assert check_full_disk_access() is True
+
+
+class TestShowFullDiskAccessDialogWindows:
+    def test_noop_on_windows(self) -> None:
+        # Should be a no-op on Windows — no exception, no prints
+        with patch(
+            "perplexity_deep_research.browser_control._is_windows", return_value=True
+        ):
+            with patch(
+                "perplexity_deep_research.browser_control._is_macos", return_value=False
+            ):
+                with patch(
+                    "perplexity_deep_research.browser_control._is_linux",
+                    return_value=False,
+                ):
+                    with patch("subprocess.run") as mock_run:
+                        with patch("builtins.print") as mock_print:
+                            show_full_disk_access_dialog()
+
+        mock_run.assert_not_called()
+        mock_print.assert_not_called()
