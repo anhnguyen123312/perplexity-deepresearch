@@ -114,6 +114,55 @@ Just follow the on-screen instructions - no complex manual configuration needed.
 - Chrome 127+ uses App-Bound Encryption — see the **Windows** section under
   Permissions for the supported setup paths.
 
+## 🗄️ Config store
+
+Cookies for **perplexity** and **grok** are stored together in a single
+versioned `config.json`. One entry is kept per Chrome profile so multi-account
+setups fall back across signed-in profiles without re-scanning.
+
+**Location**
+- POSIX: `~/.local/share/perplexity-deep-research/config.json`
+- Windows: `%LOCALAPPDATA%\perplexity-deep-research\config.json`
+- Override: `PERPLEXITY_CONFIG_FILE=/path/to/config.json`
+
+**Layout**
+```json
+{
+  "version": 1,
+  "providers": {
+    "perplexity": {
+      "expire_seconds": 86400,
+      "profiles": {
+        "Default": {
+          "cookies": {"session_token": "…", "csrf_token": "…"},
+          "extracted_at": "2026-05-11T23:48:00+00:00",
+          "expires_at":   "2026-05-12T23:48:00+00:00"
+        }
+      }
+    },
+    "grok": { "expire_seconds": 43200, "profiles": { … } }
+  }
+}
+```
+
+Defaults: perplexity 24h, grok 12h. When an entry expires, the next call
+re-harvests Chrome and persists every signed-in profile. Legacy `cookies.json`
+is auto-migrated on first load (the old file is preserved for rollback).
+
+**CLI** (installed as `perplexity-deep-research-config`)
+
+```bash
+perplexity-deep-research-config show                       # masked
+perplexity-deep-research-config show --reveal              # full cookie values
+perplexity-deep-research-config export ~/pdr-snapshot.json # for another machine
+perplexity-deep-research-config import ~/pdr-snapshot.json # merge (default)
+perplexity-deep-research-config import ~/pdr-snapshot.json --replace
+perplexity-deep-research-config set-expire perplexity 43200
+perplexity-deep-research-config rescan grok                # force re-harvest
+```
+
+Also callable as `python -m perplexity_deep_research.cli …`.
+
 ## 🔧 Troubleshooting
 
 <details>
@@ -180,7 +229,8 @@ perplexity-deep-research
 ### Environment Variables
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `PERPLEXITY_COOKIES_FILE` | Custom cookie file path | `~/.local/share/.../cookies.json` (POSIX) · `%LOCALAPPDATA%\perplexity-deep-research\cookies.json` (Windows) |
+| `PERPLEXITY_CONFIG_FILE` | Unified config.json path (perplexity + grok) | `~/.local/share/.../config.json` (POSIX) · `%LOCALAPPDATA%\perplexity-deep-research\config.json` (Windows) |
+| `PERPLEXITY_COOKIES_FILE` | Legacy cookie file path (auto-migrated into config.json) | `~/.local/share/.../cookies.json` (POSIX) · `%LOCALAPPDATA%\perplexity-deep-research\cookies.json` (Windows) |
 | `CHROME_PROFILE` | Chrome profile name | `Default` |
 | `PERPLEXITY_ALLOW_CHROME_QUIT` | Auto-quit Chrome | `0` |
 | `PERPLEXITY_TIMEOUT` | Per-request timeout (s) | `900` |

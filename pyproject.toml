@@ -26,6 +26,7 @@ dev = [
 
 [project.scripts]
 perplexity-deep-research = "perplexity_deep_research.server:main"
+perplexity-deep-research-config = "perplexity_deep_research.cli:main"
 
 [build-system]
 requires = ["hatchling"]

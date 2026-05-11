@@ -33,9 +33,12 @@ from perplexity_deep_research.exceptions import CookieExtractionError
 
 @pytest.fixture(autouse=True)
 def isolate_cookies_file(tmp_path, monkeypatch):
-    """Redirect PERPLEXITY_COOKIES_FILE to tmp_path for all tests."""
+    """Redirect PERPLEXITY_COOKIES_FILE + PERPLEXITY_CONFIG_FILE to tmp_path."""
     test_cookies_file = tmp_path / "cookies.json"
+    test_config_file = tmp_path / "config.json"
     monkeypatch.setenv("PERPLEXITY_COOKIES_FILE", str(test_cookies_file))
+    monkeypatch.setenv("PERPLEXITY_CONFIG_FILE", str(test_config_file))
+    monkeypatch.delenv("CHROME_PROFILE_USED", raising=False)
     return test_cookies_file
 
 
@@ -516,67 +519,139 @@ class TestGetCookies:
     """Tests for get_cookies() public API."""
 
     def test_get_cookies_returns_cached(self, isolate_cookies_file):
-        """Test that cached cookies are returned if valid."""
+        """Cached perplexity entry in the config store is returned without extraction."""
+        from perplexity_deep_research import profile_config
+
         cookies = {
             "session_token": "cached_token",
             "session_token_name": "__Secure-next-auth.session-token",
         }
-        save_cookies(cookies, isolate_cookies_file)
+        profile_config.save_profile_entry("perplexity", "Default", cookies)
 
-        with patch(
-            "perplexity_deep_research.cookies.extract_cookies_with_relaunch"
-        ) as mock_extract:
+        with (
+            patch(
+                "perplexity_deep_research.cookies.extract_cookies_with_relaunch"
+            ) as mock_extract,
+            patch(
+                "perplexity_deep_research.cookies.extract_cookies_all_profiles"
+            ) as mock_all,
+        ):
             result = get_cookies()
 
-            # Should return cached without calling extract
             assert result == cookies
             mock_extract.assert_not_called()
+            mock_all.assert_not_called()
 
-    def test_get_cookies_extracts_fresh_if_missing(self, isolate_cookies_file):
-        """Test that fresh cookies are extracted if cache missing."""
-        fresh_cookies = {
+    def test_get_cookies_legacy_migration_returns_cookies(self, isolate_cookies_file):
+        """A legacy cookies.json is migrated into the config store on first get."""
+        cookies = {
+            "session_token": "migrated_token",
+            "session_token_name": "__Secure-next-auth.session-token",
+        }
+        save_cookies(cookies, isolate_cookies_file)
+
+        with (
+            patch(
+                "perplexity_deep_research.cookies.extract_cookies_with_relaunch"
+            ) as mock_extract,
+            patch(
+                "perplexity_deep_research.cookies.extract_cookies_all_profiles"
+            ) as mock_all,
+        ):
+            result = get_cookies()
+
+            assert result == cookies
+            mock_extract.assert_not_called()
+            mock_all.assert_not_called()
+
+    def test_get_cookies_extracts_fresh_via_multi_profile_harvest(
+        self, isolate_cookies_file
+    ):
+        """Cache empty → multi-profile harvest fires and persists every profile."""
+        from perplexity_deep_research import profile_config
+
+        fresh = {
             "session_token": "fresh_token",
             "session_token_name": "__Secure-next-auth.session-token",
         }
-
-        with patch(
-            "perplexity_deep_research.cookies.extract_cookies_with_relaunch"
-        ) as mock_extract:
-            mock_extract.return_value = fresh_cookies
-
+        with (
+            patch(
+                "perplexity_deep_research.cookies.extract_cookies_all_profiles",
+                return_value=[("Default", fresh), ("Profile 1", {"session_token": "p1"})],
+            ),
+            patch(
+                "perplexity_deep_research.cookies._preferred_profile_order",
+                return_value=["Default", "Profile 1"],
+            ),
+            patch(
+                "perplexity_deep_research.cookies.extract_cookies_with_relaunch"
+            ) as mock_relaunch,
+        ):
             result = get_cookies()
 
-            assert result == fresh_cookies
-            # Should have saved to cache
-            assert isolate_cookies_file.exists()
+            assert result == fresh
+            mock_relaunch.assert_not_called()
+            # Both profiles got persisted
+            assert profile_config.get_profile_entry("perplexity", "Default")["cookies"] == fresh
+            assert profile_config.get_profile_entry("perplexity", "Profile 1")["cookies"] == {"session_token": "p1"}
+
+    def test_get_cookies_falls_through_to_relaunch_when_harvest_empty(
+        self, isolate_cookies_file
+    ):
+        """Harvest empty → relaunch path runs and its result is stored."""
+        from perplexity_deep_research import profile_config
+
+        fresh = {
+            "session_token": "relaunch_token",
+            "session_token_name": "__Secure-next-auth.session-token",
+        }
+        with (
+            patch(
+                "perplexity_deep_research.cookies.extract_cookies_all_profiles",
+                return_value=[],
+            ),
+            patch(
+                "perplexity_deep_research.cookies.extract_cookies_with_relaunch",
+                return_value=fresh,
+            ),
+        ):
+            result = get_cookies()
+
+            assert result == fresh
+            assert profile_config.get_profile_entry("perplexity", "Default")["cookies"] == fresh
 
     def test_get_cookies_extracts_fresh_if_expired(self, isolate_cookies_file):
-        """Test that fresh cookies are extracted if cache expired."""
-        old_cookies = {
+        """Expired config-store entry → re-scan via multi-profile harvest."""
+        from perplexity_deep_research import profile_config
+
+        old = {
             "session_token": "old_token",
             "session_token_name": "__Secure-next-auth.session-token",
         }
-        # Save with old timestamp
-        old_time = (datetime.now() - timedelta(hours=25)).isoformat()
-        data = {"cookies": old_cookies, "extracted_at": old_time}
-        isolate_cookies_file.write_text(json.dumps(data))
+        # Save then force-expire the entry
+        profile_config.save_profile_entry("perplexity", "Default", old)
+        profile_config.invalidate_profile("perplexity", "Default")
 
-        fresh_cookies = {
+        fresh = {
             "session_token": "fresh_token",
             "session_token_name": "__Secure-next-auth.session-token",
         }
-
-        with patch(
-            "perplexity_deep_research.cookies.extract_cookies_with_relaunch"
-        ) as mock_extract:
-            mock_extract.return_value = fresh_cookies
-
+        with (
+            patch(
+                "perplexity_deep_research.cookies.extract_cookies_all_profiles",
+                return_value=[("Default", fresh)],
+            ),
+            patch(
+                "perplexity_deep_research.cookies._preferred_profile_order",
+                return_value=["Default"],
+            ),
+        ):
             result = get_cookies()
 
-            assert result == fresh_cookies
-            # Should have updated cache
-            loaded = load_cookies(isolate_cookies_file)
-            assert loaded == fresh_cookies
+            assert result == fresh
+            stored = profile_config.get_profile_entry("perplexity", "Default")
+            assert stored["cookies"] == fresh
+            assert not profile_config.is_expired(stored)
 
 
 class TestDatabaseLockedDetection:

@@ -30,6 +30,7 @@ from .config import (
     get_cookies_file_path,
     is_database_locked_error,
 )
+from . import profile_config
 from .exceptions import CookieExtractionError
 
 
@@ -442,7 +443,6 @@ def extract_cookies_raw(password: str | None = None) -> dict:
 
     last_error: Exception | None = None
     last_raw: dict | None = None
-    last_name: str | None = None
 
     for profile_dir in profiles:
         db = _profile_cookie_db(profile_dir)
@@ -458,7 +458,6 @@ def extract_cookies_raw(password: str | None = None) -> dict:
             continue
 
         last_raw = raw
-        last_name = profile_dir.name
         if _has_perplexity_session(raw):
             os.environ.setdefault("CHROME_PROFILE_USED", profile_dir.name)
             return raw
@@ -474,6 +473,55 @@ def extract_cookies_raw(password: str | None = None) -> dict:
     raise CookieExtractionError(
         f"No usable Chrome profile found. Tried: {[p.name for p in profiles]}"
     )
+
+
+def extract_cookies_all_profiles(
+    password: str | None = None,
+) -> list[tuple[str, dict]]:
+    """Extract cookies from every Chrome profile that yields a session token.
+
+    Used by the config-store flow to persist one entry per signed-in profile so
+    later runs can fall back without re-scanning the disk.
+
+    Returns:
+        list[tuple[str, dict]]: ``(chrome_profile_name, normalized_cookies)``
+            pairs. Empty if no profile contained a Perplexity session token.
+
+    Raises:
+        sqlite3.OperationalError: If Chrome is blocking database access.
+    """
+    if sys.platform == "win32":
+        # rookiepy collapses every Chrome profile into one flat dict; we cannot
+        # split per-profile here without re-implementing v20 ABE decryption,
+        # so persist the merged result under a synthetic "Default" key. This
+        # still gives the user a cache hit on the next run.
+        raw = _extract_cookies_windows_rookiepy("perplexity.ai")
+        if _has_perplexity_session(raw):
+            return [("Default", normalize_cookies(raw))]
+        return []
+
+    profiles = list_chrome_profiles_ordered()
+    if not profiles:
+        return []
+
+    out: list[tuple[str, dict]] = []
+    for profile_dir in profiles:
+        db = _profile_cookie_db(profile_dir)
+        if db is None:
+            continue
+        cookie_path = str(db.resolve())
+        try:
+            raw = _extract_one_profile(cookie_path, password)
+        except OperationalError:
+            raise  # propagate DB-lock for the relaunch handler
+        except Exception:
+            continue
+        if _has_perplexity_session(raw):
+            try:
+                out.append((profile_dir.name, normalize_cookies(raw)))
+            except CookieExtractionError:
+                continue
+    return out
 
 
 def extract_cookies_with_relaunch() -> dict:
@@ -588,13 +636,33 @@ def load_cookies(path: Path | None = None) -> dict | None:
     return data["cookies"]
 
 
+def _preferred_profile_order() -> list[str]:
+    """Preferred Chrome profile order for the perplexity provider.
+
+    Mirrors :func:`list_chrome_profiles_ordered` but returns just the names so
+    the config store can rank cached entries.
+    """
+    if sys.platform == "win32":
+        # rookiepy doesn't expose per-profile data; keep the synthetic
+        # "Default" key produced by ``extract_cookies_all_profiles``.
+        return ["Default"]
+    return [p.name for p in list_chrome_profiles_ordered()]
+
+
 def get_cookies() -> dict:
     """
-    Get cookies (cached or fresh).
+    Get cookies (cached or fresh) via the unified config store.
 
-    Main public API entry point for cookie acquisition.
-    Returns cached cookies if valid, otherwise extracts fresh cookies
-    and caches them.
+    Behavior:
+      1. Ask :mod:`profile_config` for the first non-expired perplexity entry
+         (preferring the active Chrome profile order).
+      2. On miss/expiry, run :func:`extract_cookies_all_profiles` to harvest
+         every signed-in profile, persist each one with the per-provider
+         expiry, then return the entry matching the preferred profile (or
+         the first stored entry).
+      3. On total miss (no profile yielded cookies), fall through to the
+         legacy single-profile path so the user gets the same diagnostic
+         error as before.
 
     Returns:
         dict: Canonical cookie dict with session_token and optional csrf_token
@@ -602,10 +670,35 @@ def get_cookies() -> dict:
     Raises:
         CookieExtractionError: If cookie extraction fails
     """
-    cached = load_cookies()
-    if cached:
-        return cached
+    preferred = _preferred_profile_order()
+    found = profile_config.get_first_valid(
+        profile_config.PROVIDER_PERPLEXITY, preferred_order=preferred
+    )
+    if found is not None:
+        return found[1]["cookies"]
 
+    # No valid cache — try to harvest every signed-in profile in one pass.
+    try:
+        harvested = extract_cookies_all_profiles()
+    except OperationalError:
+        harvested = []
+
+    if harvested:
+        for chrome_profile, normalized in harvested:
+            profile_config.save_profile_entry(
+                profile_config.PROVIDER_PERPLEXITY, chrome_profile, normalized
+            )
+        harvested_map = dict(harvested)
+        for chrome_profile in preferred:
+            if chrome_profile in harvested_map:
+                return harvested_map[chrome_profile]
+        return harvested[0][1]
+
+    # Multi-profile harvest empty — fall back to the single-profile relaunch
+    # path so the user still gets keychain / Chrome-quit prompts.
     fresh = extract_cookies_with_relaunch()
-    save_cookies(fresh)
+    chrome_profile = os.environ.get("CHROME_PROFILE_USED") or "Default"
+    profile_config.save_profile_entry(
+        profile_config.PROVIDER_PERPLEXITY, chrome_profile, fresh
+    )
     return fresh

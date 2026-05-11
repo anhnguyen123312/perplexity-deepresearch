@@ -19,13 +19,12 @@ from .config import (
     CONVERSATIONS_NEW,
     DEFAULT_DEVICE_ENV,
     IMPERSONATE_TARGET,
-    MODE_AUTO,
     MODE_GROK_4_3_BETA,
     SEC_CH_UA,
     STREAM_TIMEOUT_SECS,
     VALID_MODES,
 )
-from .cookies import get_grok_cookies
+from .cookies import get_grok_cookies_cached, invalidate_grok_cache
 from .statsig import get_statsig_id
 
 
@@ -41,13 +40,23 @@ class GrokClient:
 
     def _ensure_session(self) -> requests.Session:
         if self._sess is None:
-            self._cookies = get_grok_cookies()
+            self._cookies = get_grok_cookies_cached()
             sess = requests.Session(impersonate=IMPERSONATE_TARGET)
             for k, v in self._cookies.items():
                 sess.cookies.set(k, v, domain=".grok.com")
             sess.headers.update({"user-agent": CHROME_UA})
             self._sess = sess
         return self._sess
+
+    def _drop_session_and_invalidate_cache(self) -> None:
+        """Forget the in-memory session and expire stored grok entries.
+
+        Called after a 401/403 so the next ``_ensure_session`` triggers a
+        fresh Chrome scan + cache save instead of reusing dead cookies.
+        """
+        self._sess = None
+        self._cookies = None
+        invalidate_grok_cache()
 
     def _build_headers(self, statsig_id: str) -> dict[str, str]:
         return {
@@ -174,15 +183,29 @@ class GrokClient:
             )
 
             if r.status_code == 403:
-                # Likely anti-bot — refresh statsig-id and retry once
+                # 403 has two causes:
+                # 1. Statsig anti-bot — refresh statsig-id and retry.
+                # 2. Stale grok cookies — invalidate the config-store entry
+                #    so the next call re-scans Chrome.
                 err_body = b"".join(r.iter_content()).decode(
                     "utf-8", "replace"
                 )
                 if attempt == 0 and "anti-bot" in err_body.lower():
                     continue
+                self._drop_session_and_invalidate_cache()
                 return {
                     "error": f"403 from grok.com: {err_body[:500]}",
                     "status": 403,
+                }
+
+            if r.status_code == 401:
+                err_body = b"".join(r.iter_content()).decode(
+                    "utf-8", "replace"
+                )
+                self._drop_session_and_invalidate_cache()
+                return {
+                    "error": f"401 from grok.com: {err_body[:500]}",
+                    "status": 401,
                 }
 
             if r.status_code != 200:
