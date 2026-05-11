@@ -600,8 +600,8 @@ class TestModeMapping:
             call_args = session_instance.request.call_args
             payload = call_args[1]["json"]
 
-            assert payload["params"]["mode"] == "asi"
-            assert payload["params"]["model_preference"] == "pplx_asi"
+            assert payload["params"]["mode"] == "copilot"
+            assert payload["params"]["model_preference"] == "pplx_alpha"
 
     def test_payload_pro(self, mock_cookies, mock_sse_chunks):
         """Assert mode='copilot', model_preference='pplx_pro'."""

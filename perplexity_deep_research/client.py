@@ -477,7 +477,7 @@ class PerplexityClient:
         # 2026-05-11: Pro = copilot/pplx_pro confirmed; deep research now uses
         # the asi/pplx_asi pair surfaced under "Advanced research" in the UI).
         mode_mapping = {
-            "deep research": ("asi", "pplx_asi"),
+            "deep research": ("copilot", "pplx_alpha"),
             "pro": ("copilot", "pplx_pro"),
             "reasoning": ("copilot", "r1"),
             "auto": ("concise", "turbo"),
