@@ -92,7 +92,20 @@ class GrokClient:
         }
 
     @staticmethod
-    def _walk_tokens(obj: Any) -> list[str]:
+    def _walk_tokens(obj: Any, include_thinking: bool = False) -> list[str]:
+        """Collect `token` strings from a streamed frame.
+
+        Each grok SSE frame carries a single ``token`` dict like::
+
+            {"token": "...", "isThinking": false, "messageTag": "final", ...}
+
+        When ``isThinking`` is ``True`` (Grok 4.3 beta / Expert / Heavy modes),
+        the token belongs to the chain-of-thought / tool-call trace (including
+        inline ``<xai:tool_usage_card>`` XML). Those would otherwise be
+        concatenated into the final answer and produce garbled output. By
+        default we keep only the final-answer tokens (``isThinking == False``);
+        pass ``include_thinking=True`` to keep everything (legacy behaviour).
+        """
         out: list[str] = []
         stack = [obj]
         while stack:
@@ -100,7 +113,8 @@ class GrokClient:
             if isinstance(cur, dict):
                 tok = cur.get("token")
                 if isinstance(tok, str):
-                    out.append(tok)
+                    if include_thinking or cur.get("isThinking") is not True:
+                        out.append(tok)
                 stack.extend(cur.values())
             elif isinstance(cur, list):
                 stack.extend(cur)
@@ -126,10 +140,15 @@ class GrokClient:
         self,
         query: str,
         mode: str = MODE_GROK_4_3_BETA,
+        include_thinking: bool = False,
     ) -> dict[str, Any]:
         """Send `query` to grok.com using the given mode_id. Returns
         ``{"answer", "conversation_id", "response_id", "mode", "elapsed_secs",
         "stream_lines"}`` on success, or ``{"error": str}`` on failure.
+
+        Thinking/tool-call traces (``isThinking == True``) are stripped from
+        the answer by default. Set ``include_thinking=True`` to keep them
+        (useful for debugging or for showing the reasoning chain).
         """
         if mode not in VALID_MODES:
             return {
@@ -193,7 +212,9 @@ class GrokClient:
                     continue
 
                 # Reconstruct answer from token frames
-                answer_parts.extend(self._walk_tokens(j))
+                answer_parts.extend(
+                    self._walk_tokens(j, include_thinking=include_thinking)
+                )
 
                 # Capture identifiers (first occurrence wins)
                 ids = self._walk_for_keys(

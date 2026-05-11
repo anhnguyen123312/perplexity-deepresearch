@@ -82,7 +82,12 @@ from .cookies import (
     save_cookies,
     to_http_cookies,
 )
-from .exceptions import AuthenticationError, PerplexityError, RateLimitError
+from .exceptions import (
+    AuthenticationError,
+    BlockedError,
+    PerplexityError,
+    RateLimitError,
+)
 
 
 class PerplexityClient:
@@ -195,6 +200,22 @@ class PerplexityClient:
                 raise PerplexityError(
                     f"Perplexity returned FAILED: {last.get('text') or last.get('_extras')}"
                 )
+            if status == "BLOCKED":
+                # Server refused the request (e.g. tier-locked model: ASI /
+                # Advanced Research consumes ``pplx_asi`` credits). The
+                # ``locked_reason`` field carries the machine-readable cause.
+                reason = last.get("locked_reason") or "unknown"
+                model = last.get("user_selected_model") or last.get("display_model") or "?"
+                hint = ""
+                if reason == "insufficient_credits":
+                    hint = (
+                        " — your account has run out of credits for this tier."
+                        " Try mode='auto' (free) or mode='pro' instead, or wait"
+                        " until the monthly quota resets."
+                    )
+                raise BlockedError(
+                    f"Perplexity returned BLOCKED ({reason}) for model={model}{hint}"
+                )
             if not last.get("reconnectable") or not last.get("backend_uuid"):
                 # Stream ended without answer and we cannot reconnect.
                 raise PerplexityError("No answer found in Perplexity response")
@@ -230,44 +251,89 @@ class PerplexityClient:
         """
         Read message events from an SSE stream until ``end_of_stream``.
 
+        Handles two on-the-wire variants emitted by perplexity.ai:
+
+        * Initial ``/rest/sse/perplexity_ask`` stream — CRLF line endings
+          with a space after the colon (``event: message\\r\\ndata: {...}\\r\\n\\r\\n``).
+        * Reconnect ``/rest/sse/perplexity_ask/reconnect/{uuid}`` stream —
+          standard SSE LF line endings with no space (``event:message\\ndata:{...}\\n\\n``),
+          and the stream is prefixed by a ``: hello`` comment / heartbeat.
+
+        Both forms are accepted by buffering raw bytes, normalising
+        ``\\r\\n`` → ``\\n``, splitting on blank lines, and parsing each
+        frame field-by-field (per the SSE spec).
+
         Side effect: parses the nested ``text`` field (legacy step list) and
         attaches ``answer`` to any chunk that contains a ``FINAL`` step.
         """
         chunks: list[dict] = []
+        buf = b""
 
-        for chunk in response_stream.iter_lines(delimiter=b"\r\n\r\n"):
-            content = chunk.decode("utf-8")
+        for raw in response_stream.iter_content(chunk_size=4096):
+            if not raw:
+                continue
+            buf += raw
 
-            if content.startswith("event: message\r\n"):
-                try:
-                    json_str = content[len("event: message\r\ndata: "):]
-                    content_json = json.loads(json_str)
+            # Normalise CRLF to LF so frame separation is uniform.
+            buf = buf.replace(b"\r\n", b"\n")
 
-                    if "text" in content_json and content_json["text"]:
-                        try:
-                            text_parsed = json.loads(content_json["text"])
-                            if isinstance(text_parsed, list):
-                                for step in text_parsed:
-                                    if step.get("step_type") == "FINAL":
-                                        final_content = step.get("content", {})
-                                        if "answer" in final_content:
-                                            answer_data = json.loads(
-                                                final_content["answer"]
-                                            )
-                                            content_json["answer"] = (
-                                                answer_data.get("answer", "")
-                                            )
-                                            break
-                            content_json["text"] = text_parsed
-                        except (json.JSONDecodeError, TypeError, KeyError):
-                            pass
-
-                    chunks.append(content_json)
-                except (json.JSONDecodeError, KeyError):
+            # Frames are terminated by a blank line (LF LF).
+            while b"\n\n" in buf:
+                frame, buf = buf.split(b"\n\n", 1)
+                if not frame.strip():
                     continue
 
-            elif content.startswith("event: end_of_stream\r\n"):
-                break
+                event_type = "message"  # SSE default per spec
+                data_lines: list[str] = []
+                for line in frame.decode("utf-8", "replace").split("\n"):
+                    if not line or line.startswith(":"):
+                        # blank inside a frame is impossible here; ``:`` is comment
+                        continue
+                    if ":" in line:
+                        field, _, value = line.partition(":")
+                        # SSE spec: a single leading space after the colon is stripped
+                        if value.startswith(" "):
+                            value = value[1:]
+                    else:
+                        field, value = line, ""
+                    if field == "event":
+                        event_type = value
+                    elif field == "data":
+                        data_lines.append(value)
+                    # ignore unknown fields (id, retry, ...)
+
+                if event_type == "end_of_stream":
+                    return chunks
+
+                if event_type != "message" or not data_lines:
+                    continue
+
+                payload_str = "\n".join(data_lines)
+                try:
+                    content_json = json.loads(payload_str)
+                except json.JSONDecodeError:
+                    continue
+
+                if "text" in content_json and content_json["text"]:
+                    try:
+                        text_parsed = json.loads(content_json["text"])
+                        if isinstance(text_parsed, list):
+                            for step in text_parsed:
+                                if step.get("step_type") == "FINAL":
+                                    final_content = step.get("content", {})
+                                    if "answer" in final_content:
+                                        answer_data = json.loads(
+                                            final_content["answer"]
+                                        )
+                                        content_json["answer"] = (
+                                            answer_data.get("answer", "")
+                                        )
+                                        break
+                        content_json["text"] = text_parsed
+                    except (json.JSONDecodeError, TypeError, KeyError):
+                        pass
+
+                chunks.append(content_json)
 
         return chunks
 
@@ -449,6 +515,10 @@ class PerplexityClient:
                     "citations": citations,
                     "backend_uuid": parsed.get("backend_uuid", ""),
                 }
+            except BlockedError:
+                # Permanent server-side block (e.g. insufficient_credits).
+                # Retrying does not help — surface immediately.
+                raise
             except (PerplexityError, RateLimitError) as e:
                 last_error = e
                 if attempt < MAX_RETRIES:

@@ -78,12 +78,18 @@ def mock_sse_response_success():
 
 @pytest.fixture
 def mock_sse_chunks(mock_sse_response_success):
-    """Return mock SSE chunks as bytes."""
+    """Return mock SSE bytes for ``iter_content`` (one chunk = full stream).
+
+    Matches the on-the-wire format of perplexity.ai's initial
+    ``/rest/sse/perplexity_ask`` endpoint: CRLF line endings and a single
+    space after the ``event:`` / ``data:`` field colons.
+    """
     data = json.dumps(mock_sse_response_success)
-    return [
-        f"event: message\r\ndata: {data}".encode("utf-8"),
-        b"event: end_of_stream\r\n",
-    ]
+    blob = (
+        f"event: message\r\ndata: {data}\r\n\r\n"
+        f"event: end_of_stream\r\n\r\n"
+    ).encode("utf-8")
+    return [blob]
 
 
 class TestClientUsesChromImpersonation:
@@ -195,7 +201,7 @@ class TestSearchReturnsAnswerDict:
         ):
             mock_response = MagicMock()
             mock_response.status_code = 200
-            mock_response.iter_lines.return_value = iter(mock_sse_chunks)
+            mock_response.iter_content.return_value = iter(mock_sse_chunks)
 
             session_instance = MagicMock()
             session_instance.request.return_value = mock_response
@@ -236,7 +242,7 @@ class TestParseSSEResponse:
             client = PerplexityClient()
 
             mock_stream = MagicMock()
-            mock_stream.iter_lines.return_value = iter(mock_sse_chunks)
+            mock_stream.iter_content.return_value = iter(mock_sse_chunks)
 
             result = client.parse_sse_response(mock_stream)
 
@@ -260,7 +266,7 @@ class TestParseSSEResponse:
             client = PerplexityClient()
 
             mock_stream = MagicMock()
-            mock_stream.iter_lines.return_value = iter([])
+            mock_stream.iter_content.return_value = iter([])
 
             with pytest.raises(PerplexityError, match="No response received"):
                 client.parse_sse_response(mock_stream)
@@ -284,10 +290,13 @@ class TestParseSSEResponse:
             # Response without FINAL step
             text_content = json.dumps([{"step_type": "SEARCH_RESULTS", "content": {}}])
             data = json.dumps({"backend_uuid": "test", "text": text_content})
-            chunks = [f"event: message\r\ndata: {data}".encode("utf-8")]
+            blob = (
+                f"event: message\r\ndata: {data}\r\n\r\n"
+                f"event: end_of_stream\r\n\r\n"
+            ).encode("utf-8")
 
             mock_stream = MagicMock()
-            mock_stream.iter_lines.return_value = iter(chunks)
+            mock_stream.iter_content.return_value = iter([blob])
 
             with pytest.raises(PerplexityError, match="No answer found"):
                 client.parse_sse_response(mock_stream)
@@ -534,7 +543,7 @@ class TestFollowUpPayload:
         ):
             mock_response = MagicMock()
             mock_response.status_code = 200
-            mock_response.iter_lines.return_value = iter(mock_sse_chunks)
+            mock_response.iter_content.return_value = iter(mock_sse_chunks)
 
             session_instance = MagicMock()
             session_instance.request.return_value = mock_response
@@ -574,7 +583,7 @@ class TestModeMapping:
         ):
             mock_response = MagicMock()
             mock_response.status_code = 200
-            mock_response.iter_lines.return_value = iter(mock_sse_chunks)
+            mock_response.iter_content.return_value = iter(mock_sse_chunks)
 
             session_instance = MagicMock()
             session_instance.request.return_value = mock_response
@@ -609,7 +618,7 @@ class TestModeMapping:
         ):
             mock_response = MagicMock()
             mock_response.status_code = 200
-            mock_response.iter_lines.return_value = iter(mock_sse_chunks)
+            mock_response.iter_content.return_value = iter(mock_sse_chunks)
 
             session_instance = MagicMock()
             session_instance.request.return_value = mock_response
@@ -644,7 +653,7 @@ class TestModeMapping:
         ):
             mock_response = MagicMock()
             mock_response.status_code = 200
-            mock_response.iter_lines.return_value = iter(mock_sse_chunks)
+            mock_response.iter_content.return_value = iter(mock_sse_chunks)
 
             session_instance = MagicMock()
             session_instance.request.return_value = mock_response

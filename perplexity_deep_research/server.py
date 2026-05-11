@@ -200,45 +200,65 @@ def follow_up(query: str, backend_uuid: str) -> dict:
 
 
 @mcp.tool()
-def grok_search(query: str, mode: str = MODE_GROK_4_3_BETA) -> dict:
+def grok_search(
+    query: str,
+    mode: str = MODE_GROK_4_3_BETA,
+    include_thinking: bool = False,
+) -> dict:
     """Send `query` to grok.com using the requested mode and return the answer.
 
     Args:
         query: The user prompt.
         mode: One of "auto", "fast", "expert", "heavy",
             or "grok-420-computer-use-sa" (Grok 4.3 beta — default).
+        include_thinking: If False (default), strip chain-of-thought and tool-
+            usage trace tokens (``isThinking == True``) from the answer.
+            Set True to see the full reasoning chain (debugging).
 
     Returns:
         dict with `answer`, `conversation_id`, `response_id`, `mode`,
         `elapsed_secs`, `stream_lines`. On failure: `{"error": ...}`.
     """
     try:
-        return get_grok_client().search(query=query, mode=mode)
+        return get_grok_client().search(
+            query=query, mode=mode, include_thinking=include_thinking
+        )
     except Exception as e:
         return {"error": f"{type(e).__name__}: {e}"}
 
 
 @mcp.tool()
-def grok_4_3(query: str) -> dict:
+def grok_4_3(query: str, include_thinking: bool = False) -> dict:
     """Shortcut: ask Grok 4.3 (beta) directly.
 
     Equivalent to ``grok_search(query, mode="grok-420-computer-use-sa")``.
+    Thinking trace is stripped by default; set ``include_thinking=True`` to
+    keep it.
     """
     try:
-        return get_grok_client().search(query=query, mode=MODE_GROK_4_3_BETA)
+        return get_grok_client().search(
+            query=query,
+            mode=MODE_GROK_4_3_BETA,
+            include_thinking=include_thinking,
+        )
     except Exception as e:
         return {"error": f"{type(e).__name__}: {e}"}
 
 
 @mcp.tool()
-def grok_expert(query: str) -> dict:
+def grok_expert(query: str, include_thinking: bool = False) -> dict:
     """Shortcut: ask Grok Expert mode (UI: "Chuyên gia / Suy nghĩ sâu").
 
     Expert thinks longer before answering. Equivalent to
-    ``grok_search(query, mode="expert")``.
+    ``grok_search(query, mode="expert")``. Thinking trace is stripped by
+    default; set ``include_thinking=True`` to keep it.
     """
     try:
-        return get_grok_client().search(query=query, mode=GROK_MODE_EXPERT)
+        return get_grok_client().search(
+            query=query,
+            mode=GROK_MODE_EXPERT,
+            include_thinking=include_thinking,
+        )
     except Exception as e:
         return {"error": f"{type(e).__name__}: {e}"}
 

@@ -38,3 +38,15 @@ class RateLimitError(PerplexityError):
     """Raised when Perplexity API rate limit is exceeded."""
 
     pass
+
+
+class BlockedError(PerplexityError):
+    """Raised when Perplexity returns ``status=BLOCKED`` (permanent).
+
+    Typical causes: ``locked_reason=insufficient_credits`` for tier-locked
+    models (e.g. ``pplx_asi`` powering deep research / Advanced Research).
+    Retrying does not help — the account must regain quota or the caller
+    must pick a different mode.
+    """
+
+    pass
