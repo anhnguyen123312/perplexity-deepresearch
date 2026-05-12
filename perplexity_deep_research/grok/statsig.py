@@ -79,11 +79,32 @@ def capture_statsig_id_via_chrome(
     headless: bool = False,
     timeout_secs: int = 90,
 ) -> str:
-    """Drive the user's Chrome via Playwright to capture x-statsig-id.
+    """Capture x-statsig-id by driving Chrome via Playwright.
 
-    Submits a minimal chat in grok.com so the browser fires a real request
-    with all anti-bot headers, then intercepts headers via page.on("request").
+    Runs the Playwright work in a worker thread so it stays usable from
+    code paths that already have a running asyncio loop (e.g. the FastMCP
+    tool handler). ``sync_playwright()`` refuses to run when
+    ``asyncio.get_running_loop()`` returns a live loop, and worker threads
+    spawned from a loop do not inherit it.
     """
+    import concurrent.futures
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(
+            _do_capture_statsig_id_via_chrome,
+            target_path,
+            method,
+            headless,
+            timeout_secs,
+        ).result()
+
+
+def _do_capture_statsig_id_via_chrome(
+    target_path: str,
+    method: str,
+    headless: bool,
+    timeout_secs: int,
+) -> str:
     # Imported lazily so the MCP doesn't pay Playwright's startup cost
     # for every call when the cache is hot.
     from playwright.sync_api import sync_playwright
