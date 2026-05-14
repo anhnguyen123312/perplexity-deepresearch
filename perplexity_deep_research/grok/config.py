@@ -21,17 +21,18 @@ VALID_MODES = {MODE_AUTO, MODE_FAST, MODE_EXPERT, MODE_HEAVY, MODE_GROK_4_3_BETA
 # Default model — server picks the right one based on user tier
 DEFAULT_MODEL_NAME = None  # let server decide
 
-# curl_cffi impersonate target (closest to Chrome 147 currently shipped)
-IMPERSONATE_TARGET = "chrome142"
+# curl_cffi impersonate target — chrome146 is the highest chrome profile
+# shipped by curl_cffi 0.15.0; closest match to the user's installed Chrome 148.
+IMPERSONATE_TARGET = "chrome146"
 
 # Match Chrome version on the user's machine; cf_clearance is UA-bound
 CHROME_UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/147.0.0.0 Safari/537.36"
+    "Chrome/148.0.0.0 Safari/537.36"
 )
 
-SEC_CH_UA = '"Not.A;Brand";v="99", "Chrome";v="147", "Chromium";v="147"'
+SEC_CH_UA = '"Not.A;Brand";v="99", "Chrome";v="148", "Chromium";v="148"'
 
 # Where we cache the captured x-statsig-id (path+method bound, deterministic)
 def get_state_dir() -> Path:

@@ -115,6 +115,7 @@ def _ensure_schema(config: dict) -> dict:
         provider = config["providers"].setdefault(name, {})
         provider.setdefault("expire_seconds", DEFAULT_EXPIRE_SECONDS[name])
         provider.setdefault("profiles", {})
+        provider.setdefault("statsig", {})
     return config
 
 
@@ -256,6 +257,25 @@ def invalidate_profile(
     if entry is None:
         return
     entry["expires_at"] = datetime.now(timezone.utc).isoformat()
+    save_config(config, path)
+
+
+def get_provider_statsig(
+    provider: str, key: str, path: Optional[Path] = None
+) -> Optional[dict]:
+    """Return the statsig cache entry for ``(provider, key)`` or None."""
+    config = load_config(path)
+    return config["providers"][provider].get("statsig", {}).get(key)
+
+
+def set_provider_statsig(
+    provider: str, key: str, entry: dict, path: Optional[Path] = None
+) -> None:
+    """Persist a statsig cache entry for ``(provider, key)``."""
+    if provider not in ALL_PROVIDERS:
+        raise ValueError(f"Unknown provider {provider!r}; valid: {ALL_PROVIDERS}")
+    config = load_config(path)
+    config["providers"][provider].setdefault("statsig", {})[key] = entry
     save_config(config, path)
 
 

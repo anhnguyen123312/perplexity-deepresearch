@@ -1,10 +1,10 @@
 [project]
 name = "perplexity-deep-research"
-version = "0.4.2"
+version = "0.4.3"
 description = "Perplexity Deep Research + Grok chat MCP server (macOS, Linux & Windows)"
 requires-python = ">=3.12"
 dependencies = [
-    "curl-cffi>=0.7.0",
+    "curl-cffi>=0.15.0",
     "pycookiecheat>=0.8.0",
     "mcp>=1.0.0",
     "python-dotenv>=1.0.0",
@@ -12,6 +12,7 @@ dependencies = [
     "secretstorage>=3.3.0; sys_platform == 'linux'",
     "playwright>=1.59.0",
     "playwright-stealth>=2.0.0",
+    "patchright>=1.59.0",
     "rookiepy>=0.5.0; sys_platform == 'win32'",
     "pywin32>=300; sys_platform == 'win32'",
 ]

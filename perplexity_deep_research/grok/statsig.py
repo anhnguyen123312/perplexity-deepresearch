@@ -21,11 +21,9 @@ on a 403 anti-bot response. Users can force-refresh via
 
 from __future__ import annotations
 
-import json
 import time
-from pathlib import Path
 
-from .config import get_statsig_cache_path
+from .. import profile_config
 from .cookies import get_grok_cookies
 
 
@@ -34,29 +32,15 @@ from .cookies import get_grok_cookies
 CACHE_TTL_SECS = 365 * 24 * 60 * 60  # 1 year
 
 
-def _read_cache() -> dict:
-    p = get_statsig_cache_path()
-    if not p.exists():
-        return {}
-    try:
-        return json.loads(p.read_text())
-    except Exception:
-        return {}
-
-
-def _write_cache(data: dict) -> None:
-    p = get_statsig_cache_path()
-    p.write_text(json.dumps(data, indent=2))
-
-
 def _cache_key(path: str, method: str) -> str:
     return f"{method.upper()} {path}"
 
 
 def get_cached_statsig_id(path: str, method: str = "POST") -> str | None:
     """Return cached x-statsig-id for (path, method) or None if missing/stale."""
-    cache = _read_cache()
-    entry = cache.get(_cache_key(path, method))
+    entry = profile_config.get_provider_statsig(
+        profile_config.PROVIDER_GROK, _cache_key(path, method)
+    )
     if not entry:
         return None
     if time.time() - entry.get("ts", 0) > CACHE_TTL_SECS:
@@ -65,12 +49,11 @@ def get_cached_statsig_id(path: str, method: str = "POST") -> str | None:
 
 
 def store_statsig_id(path: str, method: str, statsig_id: str) -> None:
-    cache = _read_cache()
-    cache[_cache_key(path, method)] = {
-        "statsig_id": statsig_id,
-        "ts": int(time.time()),
-    }
-    _write_cache(cache)
+    profile_config.set_provider_statsig(
+        profile_config.PROVIDER_GROK,
+        _cache_key(path, method),
+        {"statsig_id": statsig_id, "ts": int(time.time())},
+    )
 
 
 def capture_statsig_id_via_chrome(
@@ -79,13 +62,18 @@ def capture_statsig_id_via_chrome(
     headless: bool = False,
     timeout_secs: int = 90,
 ) -> str:
-    """Capture x-statsig-id by driving Chrome via Playwright.
+    """Capture x-statsig-id by driving Patchright with the user's Chrome 148.
 
-    Runs the Playwright work in a worker thread so it stays usable from
-    code paths that already have a running asyncio loop (e.g. the FastMCP
-    tool handler). ``sync_playwright()`` refuses to run when
-    ``asyncio.get_running_loop()`` returns a live loop, and worker threads
-    spawned from a loop do not inherit it.
+    Patchright is a patched-Playwright distribution whose runtime CDP patches
+    and automation-flag stripping bypass Cloudflare's managed challenge when
+    paired with the user's local Chrome binary via ``channel="chrome"``. The
+    stock Playwright + ``playwright_stealth`` combo gets stuck on the "Just
+    a moment..." page on grok.com; Patchright clears it within ~7s.
+
+    Runs in a worker thread so it stays usable from code paths that already
+    have a running asyncio loop (e.g. the FastMCP tool handler). Sync
+    Playwright refuses to run when ``asyncio.get_running_loop()`` returns a
+    live loop, and worker threads spawned from a loop do not inherit it.
     """
     import concurrent.futures
 
@@ -105,16 +93,18 @@ def _do_capture_statsig_id_via_chrome(
     headless: bool,
     timeout_secs: int,
 ) -> str:
-    # Imported lazily so the MCP doesn't pay Playwright's startup cost
-    # for every call when the cache is hot.
-    from playwright.sync_api import sync_playwright
-    try:
-        from playwright_stealth import Stealth
-        stealth = True
-    except ImportError:
-        stealth = False
+    # Patchright is a patched Playwright build whose runtime CDP patches +
+    # automation-flag stripping bypass Cloudflare's managed challenge when
+    # paired with the user's real Chrome 148 binary via channel="chrome".
+    import os
+    import tempfile
+
+    from patchright.sync_api import sync_playwright
+
+    from .. import profile_config
 
     raw_cookies = get_grok_cookies()
+    profile_name = os.environ.get("CHROME_PROFILE_USED_GROK") or "Default"
     cookies = [
         {"name": k, "value": v, "domain": ".grok.com",
          "path": "/", "secure": True, "httpOnly": False, "sameSite": "Lax"}
@@ -122,18 +112,19 @@ def _do_capture_statsig_id_via_chrome(
     ]
 
     captured: dict[str, str | None] = {"id": None}
+    fresh_cookies: dict[str, str] = {}
 
-    def run(p):
-        browser = p.chromium.launch(
-            channel="chrome",
-            headless=headless,
-            args=[
-                "--disable-blink-features=AutomationControlled",
-                "--no-sandbox",
-                "--disable-features=IsolateOrigins,site-per-process",
-            ],
-        )
-        ctx = browser.new_context(locale="en-US")
+    pw_cm = sync_playwright()
+    pw = pw_cm.start()
+    udd = tempfile.mkdtemp(prefix="grok_statsig_")
+    ctx = pw.chromium.launch_persistent_context(
+        user_data_dir=udd,
+        channel="chrome",
+        headless=headless,
+        no_viewport=True,
+        locale="en-US",
+    )
+    try:
         ctx.add_cookies(cookies)
         page = ctx.new_page()
 
@@ -150,39 +141,59 @@ def _do_capture_statsig_id_via_chrome(
                   timeout=60000)
         page.wait_for_timeout(4000)
 
-        # Find a visible chat input and submit a tiny message
         for sel in ['[contenteditable="true"]', "textarea"]:
             try:
                 box = page.locator(sel).first
                 box.wait_for(state="visible", timeout=8000)
                 box.click()
-                box.fill(".")  # smallest possible
+                box.fill(".")
                 page.wait_for_timeout(300)
                 box.press("Enter")
                 break
             except Exception:
                 continue
 
-        # Wait up to timeout_secs for the request to fire
         deadline = time.time() + timeout_secs
         while time.time() < deadline and captured["id"] is None:
             page.wait_for_timeout(500)
 
-        ctx.close()
-        browser.close()
-
-    if stealth:
-        with Stealth().use_sync(sync_playwright()) as p:
-            run(p)
-    else:
-        with sync_playwright() as p:
-            run(p)
+        # Harvest fresh cookies (cf_clearance, __cf_bm, etc.) from the
+        # CloakBrowser context so the curl_cffi session can reuse them.
+        try:
+            for c in ctx.cookies():
+                name = c.get("name")
+                value = c.get("value")
+                if isinstance(name, str) and isinstance(value, str):
+                    fresh_cookies[name] = value
+        except Exception:
+            pass
+    finally:
+        try:
+            browser = ctx.browser
+            ctx.close()
+            if browser is not None:
+                browser.close()
+        except Exception:
+            pass
+        try:
+            pw_cm.__exit__(None, None, None)
+        except Exception:
+            pass
 
     if not captured["id"]:
         raise RuntimeError(
             "Failed to capture x-statsig-id from grok.com. Verify Chrome is "
             "logged in to grok.com and you have a working internet connection."
         )
+
+    if fresh_cookies:
+        merged = {**raw_cookies, **fresh_cookies}
+        try:
+            profile_config.save_profile_entry(
+                profile_config.PROVIDER_GROK, profile_name, merged
+            )
+        except Exception:
+            pass
 
     store_statsig_id(target_path, method, captured["id"])
     return captured["id"]
