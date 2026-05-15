@@ -3,7 +3,12 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
-from deep_research.server import deep_research, ask, search, follow_up
+from deep_research.server import (
+    perplexity_deep_research,
+    perplexity_ask,
+    perplexity_search,
+    perplexity_follow_up,
+)
 
 
 class TestFullFlow:
@@ -22,7 +27,7 @@ class TestFullFlow:
         mock_get_client.return_value = mock_client
 
         # Call tool
-        result = deep_research("What is quantum computing?")
+        result = perplexity_deep_research("What is quantum computing?")
 
         # Verify
         assert "answer" in result
@@ -46,7 +51,7 @@ class TestFullFlow:
         }
         mock_get_client.return_value = mock_client
 
-        result = ask("What is AI?")
+        result = perplexity_ask("What is AI?")
 
         assert "answer" in result
         mock_client.search.assert_called_once()
@@ -62,7 +67,7 @@ class TestFullFlow:
         }
         mock_get_client.return_value = mock_client
 
-        result = search("Python tutorial")
+        result = perplexity_search("Python tutorial")
 
         assert "answer" in result
         mock_client.search.assert_called_once()
@@ -78,7 +83,7 @@ class TestFullFlow:
         }
         mock_get_client.return_value = mock_client
 
-        result = follow_up("Tell me more", "original-uuid")
+        result = perplexity_follow_up("Tell me more", "original-uuid")
 
         assert "answer" in result
         mock_client.search.assert_called_once_with(
@@ -102,7 +107,7 @@ class TestErrorScenarios:
         mock_client.search.side_effect = CookieExtractionError("Chrome not found")
         mock_get_client.return_value = mock_client
 
-        result = deep_research("test query")
+        result = perplexity_deep_research("test query")
 
         assert "error" in result
         assert "Chrome not found" in result["error"]
@@ -116,7 +121,7 @@ class TestErrorScenarios:
         mock_client.search.side_effect = AuthenticationError("Auth failed")
         mock_get_client.return_value = mock_client
 
-        result = ask("test query")
+        result = perplexity_ask("test query")
 
         assert "error" in result
         assert "Auth failed" in result["error"]
@@ -130,7 +135,7 @@ class TestErrorScenarios:
         mock_client.search.side_effect = RateLimitError("Rate limit exceeded")
         mock_get_client.return_value = mock_client
 
-        result = search("test query")
+        result = perplexity_search("test query")
 
         assert "error" in result
         assert "Rate limit exceeded" in result["error"]
@@ -158,14 +163,14 @@ def test_client_to_server_integration(mock_get_cookies, mock_session_class):
     ]
     mock_session.request.return_value = mock_response
 
-    from deep_research.server import get_client, deep_research
+    from deep_research.server import get_client, perplexity_deep_research
 
     # Reset singleton for test
     import deep_research.server
 
     deep_research.server._client = None
 
-    from deep_research.server import deep_research
+    from deep_research.server import perplexity_deep_research
 
     # Patch the client class to return a mock that returns our desired response
     with patch("deep_research.server.PerplexityClient") as mock_client_class:
@@ -177,7 +182,7 @@ def test_client_to_server_integration(mock_get_cookies, mock_session_class):
             "backend_uuid": "uuid1",
         }
 
-        result = deep_research(query="integrated test")
+        result = perplexity_deep_research(query="integrated test")
 
     assert result["answer"] == "Final Answer"
     assert result["backend_uuid"] == "uuid1"

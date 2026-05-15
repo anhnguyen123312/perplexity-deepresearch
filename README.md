@@ -37,22 +37,22 @@ Restart Claude Desktop. Done!
 
 **Deep Research** - Comprehensive multi-step research
 ```
-Use deep_research to find: "What are the latest advances in quantum computing?"
+Use perplexity_deep_research to find: "What are the latest advances in quantum computing?"
 ```
 
 **Ask** - Pro mode with citations
 ```
-Use ask to explain: "How does machine learning work?"
+Use perplexity_ask to explain: "How does machine learning work?"
 ```
 
 **Search** - Quick answers
 ```
-Use search for: "Python asyncio tutorial"
+Use perplexity_search for: "Python asyncio tutorial"
 ```
 
 **Follow Up** - Continue conversation
 ```
-Use follow_up to ask: "Tell me more about that"
+Use perplexity_follow_up to ask: "Tell me more about that"
 ```
 
 ## 🔐 Permissions (Automatic)
@@ -92,7 +92,7 @@ Just follow the on-screen instructions - no complex manual configuration needed.
 
 - 🔄 **Auto-refresh**: Automatically refreshes expired cookies on 401/403 errors.
 - 🔒 **Secure Integration**: Uses macOS Keychain or Linux Secret Service for secure cookie decryption.
-- 🚀 **4 Research Tools**: Access `deep_research`, `ask`, `search`, and `follow_up`.
+- 🚀 **4 Research Tools**: Access `perplexity_deep_research`, `perplexity_ask`, `perplexity_search`, and `perplexity_follow_up`.
 - 💾 **Smart Caching**: 24-hour cookie caching for faster performance.
 - 🎯 **Chrome Impersonation**: Uses TLS fingerprinting to match your browser.
 

@@ -49,7 +49,7 @@ def get_gemini_client() -> GeminiClient:
 
 
 @mcp.tool()
-def deep_research(
+def perplexity_deep_research(
     query: str, sources: list[str] = ["web"], language: str = "en-US"
 ) -> dict:
     """
@@ -86,7 +86,7 @@ def deep_research(
 
 
 @mcp.tool()
-def ask(query: str, sources: list[str] = ["web"], language: str = "en-US") -> dict:
+def perplexity_ask(query: str, sources: list[str] = ["web"], language: str = "en-US") -> dict:
     """
     Ask a question using Perplexity Pro mode.
 
@@ -152,7 +152,7 @@ def reason(query: str, sources: list[str] = ["web"], language: str = "en-US") ->
 
 
 @mcp.tool()
-def search(query: str, sources: list[str] = ["web"], language: str = "en-US") -> dict:
+def perplexity_search(query: str, sources: list[str] = ["web"], language: str = "en-US") -> dict:
     """
     Perform a quick basic search.
 
@@ -182,7 +182,7 @@ def search(query: str, sources: list[str] = ["web"], language: str = "en-US") ->
 
 
 @mcp.tool()
-def follow_up(query: str, backend_uuid: str) -> dict:
+def perplexity_follow_up(query: str, backend_uuid: str) -> dict:
     """
     Continue a previous conversation with a follow-up question.
 

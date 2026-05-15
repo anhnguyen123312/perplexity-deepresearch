@@ -6,11 +6,11 @@ from unittest.mock import Mock, patch, MagicMock
 from deep_research.server import (
     mcp,
     get_client,
-    deep_research,
-    ask,
+    perplexity_deep_research,
+    perplexity_ask,
     reason,
-    search,
-    follow_up,
+    perplexity_search,
+    perplexity_follow_up,
 )
 
 
@@ -21,14 +21,14 @@ class TestPerplexityToolsRegistered:
         """Assert deep_research, ask, reason, search, follow_up are registered."""
         from deep_research import server
 
-        for name in ("deep_research", "ask", "reason", "search", "follow_up"):
+        for name in ("perplexity_deep_research", "perplexity_ask", "reason", "perplexity_search", "perplexity_follow_up"):
             assert hasattr(server, name)
             assert callable(getattr(server, name))
 
         assert hasattr(mcp, "_tool_manager")
         tool_names = set(mcp._tool_manager._tools.keys())
 
-        expected = {"deep_research", "ask", "reason", "search", "follow_up"}
+        expected = {"perplexity_deep_research", "perplexity_ask", "reason", "perplexity_search", "perplexity_follow_up"}
         assert expected.issubset(tool_names), (
             f"Missing tools: {expected - tool_names}"
         )
@@ -50,7 +50,7 @@ class TestDeepResearchCallable:
         mock_get_client.return_value = mock_client
 
         # Call tool
-        result = deep_research(query="test query")
+        result = perplexity_deep_research(query="test query")
 
         # Verify result is dict
         assert isinstance(result, dict)
@@ -74,7 +74,7 @@ class TestDeepResearchCallable:
         }
         mock_get_client.return_value = mock_client
 
-        result = deep_research(query="test", sources=["web", "scholar"])
+        result = perplexity_deep_research(query="test", sources=["web", "scholar"])
 
         assert isinstance(result, dict)
         call_kwargs = mock_client.search.call_args[1]
@@ -91,7 +91,7 @@ class TestDeepResearchCallable:
         }
         mock_get_client.return_value = mock_client
 
-        result = deep_research(query="test", language="fr-FR")
+        result = perplexity_deep_research(query="test", language="fr-FR")
 
         assert isinstance(result, dict)
         call_kwargs = mock_client.search.call_args[1]
@@ -114,7 +114,7 @@ class TestAskCallable:
         mock_get_client.return_value = mock_client
 
         # Call tool
-        result = ask(query="test query")
+        result = perplexity_ask(query="test query")
 
         # Verify result is dict
         assert isinstance(result, dict)
@@ -138,7 +138,7 @@ class TestAskCallable:
         }
         mock_get_client.return_value = mock_client
 
-        result = ask(query="test", sources=["web", "social"])
+        result = perplexity_ask(query="test", sources=["web", "social"])
 
         assert isinstance(result, dict)
         call_kwargs = mock_client.search.call_args[1]
@@ -161,7 +161,7 @@ class TestSearchCallable:
         mock_get_client.return_value = mock_client
 
         # Call tool
-        result = search(query="test query")
+        result = perplexity_search(query="test query")
 
         # Verify result is dict
         assert isinstance(result, dict)
@@ -185,7 +185,7 @@ class TestSearchCallable:
         }
         mock_get_client.return_value = mock_client
 
-        result = search(query="test", language="es-ES")
+        result = perplexity_search(query="test", language="es-ES")
 
         assert isinstance(result, dict)
         call_kwargs = mock_client.search.call_args[1]
@@ -208,7 +208,7 @@ class TestFollowUpCallable:
         mock_get_client.return_value = mock_client
 
         # Call tool
-        result = follow_up(query="follow-up question", backend_uuid="original-uuid-123")
+        result = perplexity_follow_up(query="follow-up question", backend_uuid="original-uuid-123")
 
         # Verify result is dict
         assert isinstance(result, dict)
@@ -235,7 +235,7 @@ class TestFollowUpCallable:
         mock_get_client.return_value = mock_client
 
         backend_uuid = "test-backend-uuid-xyz"
-        result = follow_up(query="test", backend_uuid=backend_uuid)
+        result = perplexity_follow_up(query="test", backend_uuid=backend_uuid)
 
         # Verify the UUID was passed to search
         call_kwargs = mock_client.search.call_args[1]
@@ -256,7 +256,7 @@ class TestToolReturnsAnswerDict:
         }
         mock_get_client.return_value = mock_client
 
-        result = deep_research(query="test")
+        result = perplexity_deep_research(query="test")
 
         assert isinstance(result, dict)
         assert "answer" in result
@@ -273,7 +273,7 @@ class TestToolReturnsAnswerDict:
         }
         mock_get_client.return_value = mock_client
 
-        result = ask(query="test")
+        result = perplexity_ask(query="test")
 
         assert isinstance(result, dict)
         assert "answer" in result
@@ -290,7 +290,7 @@ class TestToolReturnsAnswerDict:
         }
         mock_get_client.return_value = mock_client
 
-        result = search(query="test")
+        result = perplexity_search(query="test")
 
         assert isinstance(result, dict)
         assert "answer" in result
@@ -307,7 +307,7 @@ class TestToolReturnsAnswerDict:
         }
         mock_get_client.return_value = mock_client
 
-        result = follow_up(query="test", backend_uuid="uuid")
+        result = perplexity_follow_up(query="test", backend_uuid="uuid")
 
         assert isinstance(result, dict)
         assert "answer" in result
@@ -324,7 +324,7 @@ class TestErrorHandling:
         mock_client.search.side_effect = Exception("Test error")
         mock_get_client.return_value = mock_client
 
-        result = deep_research(query="test")
+        result = perplexity_deep_research(query="test")
 
         assert isinstance(result, dict)
         assert "error" in result
@@ -337,7 +337,7 @@ class TestErrorHandling:
         mock_client.search.side_effect = Exception("Test error")
         mock_get_client.return_value = mock_client
 
-        result = ask(query="test")
+        result = perplexity_ask(query="test")
 
         assert isinstance(result, dict)
         assert "error" in result
@@ -350,7 +350,7 @@ class TestErrorHandling:
         mock_client.search.side_effect = Exception("Test error")
         mock_get_client.return_value = mock_client
 
-        result = search(query="test")
+        result = perplexity_search(query="test")
 
         assert isinstance(result, dict)
         assert "error" in result
@@ -363,7 +363,7 @@ class TestErrorHandling:
         mock_client.search.side_effect = Exception("Test error")
         mock_get_client.return_value = mock_client
 
-        result = follow_up(query="test", backend_uuid="uuid")
+        result = perplexity_follow_up(query="test", backend_uuid="uuid")
 
         assert isinstance(result, dict)
         assert "error" in result
@@ -377,13 +377,13 @@ class TestErrorHandling:
         # Test with ValueError
         mock_client.search.side_effect = ValueError("Value error")
         mock_get_client.return_value = mock_client
-        result = deep_research(query="test")
+        result = perplexity_deep_research(query="test")
         assert "error" in result
         assert "Value error" in result["error"]
 
         # Test with RuntimeError
         mock_client.search.side_effect = RuntimeError("Runtime error")
-        result = ask(query="test")
+        result = perplexity_ask(query="test")
         assert "error" in result
         assert "Runtime error" in result["error"]
 
@@ -443,7 +443,7 @@ class TestToolSignatures:
         mock_get_client.return_value = mock_client
 
         # Test with all parameters
-        result = deep_research(
+        result = perplexity_deep_research(
             query="test query", sources=["web", "scholar"], language="en-US"
         )
 
@@ -465,7 +465,7 @@ class TestToolSignatures:
         mock_get_client.return_value = mock_client
 
         # Test with all parameters
-        result = ask(query="test query", sources=["web"], language="fr-FR")
+        result = perplexity_ask(query="test query", sources=["web"], language="fr-FR")
 
         assert isinstance(result, dict)
         call_kwargs = mock_client.search.call_args[1]
@@ -485,7 +485,7 @@ class TestToolSignatures:
         mock_get_client.return_value = mock_client
 
         # Test with all parameters
-        result = search(query="test query", sources=["web"], language="en-US")
+        result = perplexity_search(query="test query", sources=["web"], language="en-US")
 
         assert isinstance(result, dict)
         call_kwargs = mock_client.search.call_args[1]
@@ -505,7 +505,7 @@ class TestToolSignatures:
         mock_get_client.return_value = mock_client
 
         # Test with required parameters
-        result = follow_up(query="follow-up", backend_uuid="test-uuid")
+        result = perplexity_follow_up(query="follow-up", backend_uuid="test-uuid")
 
         assert isinstance(result, dict)
         call_kwargs = mock_client.search.call_args[1]
