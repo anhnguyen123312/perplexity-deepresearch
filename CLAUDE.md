@@ -30,7 +30,8 @@ source .venv/bin/activate && python -m pytest tests/ --cov=deep_research --cov-r
 
 - `deep_research/` — Main package (MCP server, API client, cookie extraction, browser control)
 - `deep_research/profile_config.py` — Unified config.json store (perplexity + grok cookies, per-provider expiry, multi-profile, import/export)
-- `deep_research/cli.py` — `perplexity-deep-research-config {show,export,import,set-expire,rescan}` CLI
+- `deep_research/onboard.py` — `deep-research-onboard` interactive CLI (Chrome profile + Google account picker, cookie harvest)
+- `deep_research/cli.py` — `deep-research-config {show,export,import,set-expire,rescan}` CLI
 - `tests/` — Test suite (all mocked — no real Chrome/API needed)
 - `setup_cookies.py` / `setup_cookies.bat` — Windows-only interactive cookie setup
 - `deep_research/win_cookie_helper.py` — Elevated (UAC) helper for Windows v20 cookie decryption
