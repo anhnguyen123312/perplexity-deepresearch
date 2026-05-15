@@ -43,11 +43,13 @@ CURRENT_VERSION = 1
 
 PROVIDER_PERPLEXITY = "perplexity"
 PROVIDER_GROK = "grok"
-ALL_PROVIDERS = (PROVIDER_PERPLEXITY, PROVIDER_GROK)
+PROVIDER_GEMINI = "gemini"
+ALL_PROVIDERS = (PROVIDER_PERPLEXITY, PROVIDER_GROK, PROVIDER_GEMINI)
 
 DEFAULT_EXPIRE_SECONDS: dict[str, int] = {
     PROVIDER_PERPLEXITY: 86400,   # 24h — matches legacy COOKIE_MAX_AGE
     PROVIDER_GROK: 43200,         # 12h — grok sessions roll faster in practice
+    PROVIDER_GEMINI: 1200,        # 20m — __Secure-1PSIDTS rotates ~every 20 min
 }
 
 
@@ -116,6 +118,7 @@ def _ensure_schema(config: dict) -> dict:
         provider.setdefault("expire_seconds", DEFAULT_EXPIRE_SECONDS[name])
         provider.setdefault("profiles", {})
         provider.setdefault("statsig", {})
+        provider.setdefault("settings", {})
     return config
 
 
@@ -276,6 +279,57 @@ def set_provider_statsig(
         raise ValueError(f"Unknown provider {provider!r}; valid: {ALL_PROVIDERS}")
     config = load_config(path)
     config["providers"][provider].setdefault("statsig", {})[key] = entry
+    save_config(config, path)
+
+
+# --------------------------------------------------------------------------- #
+# User-preference settings (per provider)
+# --------------------------------------------------------------------------- #
+
+
+def get_provider_settings(provider: str, path: Optional[Path] = None) -> dict:
+    """Return the saved user-preference dict for ``provider`` (may be empty).
+
+    Free-form keys per provider. For gemini we store ``chrome_profile``,
+    ``authuser``, ``model``, ``language``. Callers MUST treat missing keys as
+    "ask the user / use the call-site argument".
+    """
+    config = load_config(path)
+    return dict(config["providers"][provider].get("settings", {}))
+
+
+def set_provider_settings(
+    provider: str,
+    updates: dict,
+    path: Optional[Path] = None,
+) -> dict:
+    """Merge ``updates`` into the provider's settings dict and persist.
+
+    Values whose update is ``None`` are deleted from the saved dict (so the
+    caller can "clear" a single key by passing ``{"model": None}``). Returns
+    the resulting settings dict.
+    """
+    if provider not in ALL_PROVIDERS:
+        raise ValueError(f"Unknown provider {provider!r}; valid: {ALL_PROVIDERS}")
+    config = load_config(path)
+    target = config["providers"][provider].setdefault("settings", {})
+    for k, v in updates.items():
+        if v is None:
+            target.pop(k, None)
+        else:
+            target[k] = v
+    save_config(config, path)
+    return dict(target)
+
+
+def clear_provider_settings(
+    provider: str, path: Optional[Path] = None
+) -> None:
+    """Wipe the entire settings dict for ``provider``."""
+    if provider not in ALL_PROVIDERS:
+        raise ValueError(f"Unknown provider {provider!r}; valid: {ALL_PROVIDERS}")
+    config = load_config(path)
+    config["providers"][provider]["settings"] = {}
     save_config(config, path)
 
 

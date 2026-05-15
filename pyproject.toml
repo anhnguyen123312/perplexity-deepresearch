@@ -1,6 +1,6 @@
 [project]
 name = "perplexity-deep-research"
-version = "0.4.3"
+version = "0.5.0"
 description = "Perplexity Deep Research + Grok chat MCP server (macOS, Linux & Windows)"
 requires-python = ">=3.12"
 dependencies = [

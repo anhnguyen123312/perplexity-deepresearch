@@ -9,6 +9,9 @@ Usage examples::
     perplexity-deep-research-config import /tmp/snapshot.json --replace
     perplexity-deep-research-config set-expire perplexity 43200
     perplexity-deep-research-config rescan grok
+    perplexity-deep-research-config defaults gemini --show
+    perplexity-deep-research-config defaults gemini --set chrome_profile=Default authuser=3 model=pro
+    perplexity-deep-research-config defaults gemini --clear
 
 All commands accept ``-c <path>`` / ``--config <path>`` to override the active
 config file (same as ``PERPLEXITY_CONFIG_FILE``).
@@ -78,6 +81,37 @@ def cmd_set_expire(args: argparse.Namespace) -> int:
     path = _path_arg(args)
     profile_config.set_expire_seconds(args.provider, args.seconds, path)
     print(f"Set {args.provider}.expire_seconds = {args.seconds}")
+    return 0
+
+
+def cmd_defaults(args: argparse.Namespace) -> int:
+    """Show / set / clear the saved user-preference defaults for a provider."""
+    path = _path_arg(args)
+    if args.clear:
+        profile_config.clear_provider_settings(args.provider, path)
+        print(f"Cleared {args.provider} defaults.")
+        return 0
+
+    if args.set:
+        updates: dict = {}
+        for kv in args.set:
+            if "=" not in kv:
+                print(f"Bad --set entry {kv!r}; expected key=value", file=sys.stderr)
+                return 1
+            k, v = kv.split("=", 1)
+            if v == "":
+                updates[k] = None  # delete key
+            elif v.isdigit() or (v.startswith("-") and v[1:].isdigit()):
+                updates[k] = int(v)
+            else:
+                updates[k] = v
+        saved = profile_config.set_provider_settings(args.provider, updates, path)
+        print(json.dumps(saved, indent=2, sort_keys=True))
+        return 0
+
+    # Default: show
+    settings = profile_config.get_provider_settings(args.provider, path)
+    print(json.dumps(settings, indent=2, sort_keys=True))
     return 0
 
 
@@ -155,6 +189,22 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_rescan.add_argument("provider", choices=("perplexity", "grok"))
     p_rescan.set_defaults(func=cmd_rescan)
+
+    p_defaults = sub.add_parser(
+        "defaults",
+        help="Show / set / clear saved user-preference defaults for a provider.",
+    )
+    p_defaults.add_argument("provider", choices=("perplexity", "grok", "gemini"))
+    p_defaults.add_argument(
+        "--set",
+        nargs="+",
+        metavar="KEY=VALUE",
+        help="Save one or more key=value pairs (use KEY= with empty value to delete).",
+    )
+    p_defaults.add_argument(
+        "--clear", action="store_true", help="Wipe all saved defaults for the provider."
+    )
+    p_defaults.set_defaults(func=cmd_defaults)
 
     return parser
 
