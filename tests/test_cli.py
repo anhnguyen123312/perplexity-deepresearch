@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
-from perplexity_deep_research import cli, profile_config
+from deep_research import cli, profile_config
 
 
 @pytest.fixture(autouse=True)
@@ -132,7 +132,7 @@ class TestRescan:
             ("Profile 1", {"__Secure-next-auth.session-token": "b"}),
         ]
         with patch(
-            "perplexity_deep_research.cookies.extract_cookies_all_profiles",
+            "deep_research.cookies.extract_cookies_all_profiles",
             return_value=fresh,
         ):
             rc = cli.main(["rescan", "perplexity"])
@@ -156,7 +156,7 @@ class TestRescan:
     def test_rescan_grok_persists_all_profiles(self, capsys, isolate_config):
         fresh = [("Default", {"sso": "x"}), ("Profile 1", {"sso": "y"})]
         with patch(
-            "perplexity_deep_research.grok.cookies.extract_grok_cookies_all_profiles",
+            "deep_research.grok.cookies.extract_grok_cookies_all_profiles",
             return_value=fresh,
         ):
             rc = cli.main(["rescan", "grok"])
@@ -171,7 +171,7 @@ class TestRescan:
         self, capsys, isolate_config
     ):
         with patch(
-            "perplexity_deep_research.cookies.extract_cookies_all_profiles",
+            "deep_research.cookies.extract_cookies_all_profiles",
             return_value=[],
         ):
             rc = cli.main(["rescan", "perplexity"])

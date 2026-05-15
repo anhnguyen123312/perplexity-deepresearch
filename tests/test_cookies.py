@@ -18,7 +18,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from perplexity_deep_research.cookies import (
+from deep_research.cookies import (
     extract_cookies_raw,
     extract_cookies_with_relaunch,
     get_chrome_cookie_path,
@@ -28,7 +28,7 @@ from perplexity_deep_research.cookies import (
     save_cookies,
     to_http_cookies,
 )
-from perplexity_deep_research.exceptions import CookieExtractionError
+from deep_research.exceptions import CookieExtractionError
 
 
 @pytest.fixture(autouse=True)
@@ -52,10 +52,10 @@ class TestExtractCookiesRaw:
             "__Secure-next-auth.csrf-token": "abc123def456",
         }
 
-        with patch("perplexity_deep_research.cookies.sys") as mock_sys:
+        with patch("deep_research.cookies.sys") as mock_sys:
             mock_sys.platform = "darwin"
             with patch(
-                "perplexity_deep_research.cookies.chrome_cookies"
+                "deep_research.cookies.chrome_cookies"
             ) as mock_chrome:
                 mock_chrome.return_value = raw_cookies
                 result = extract_cookies_raw()
@@ -70,7 +70,7 @@ class TestExtractCookiesRaw:
             "__Secure-next-auth.csrf-token": "abc123def456",
         }
 
-        import perplexity_deep_research.cookies as cookies_mod
+        import deep_research.cookies as cookies_mod
 
         fake_profile = tmp_path / "Default"
         fake_profile.mkdir()
@@ -81,11 +81,11 @@ class TestExtractCookiesRaw:
             cookies_mod, "list_chrome_profiles_ordered", lambda: [fake_profile]
         )
         with patch(
-            "perplexity_deep_research.cookies.get_chrome_cookie_path",
+            "deep_research.cookies.get_chrome_cookie_path",
             return_value="/fake/Cookies",
         ):
             with patch(
-                "perplexity_deep_research.cookies._extract_cookies_linux_native"
+                "deep_research.cookies._extract_cookies_linux_native"
             ) as mock_native:
                 mock_native.return_value = raw_cookies
                 result = extract_cookies_raw()
@@ -100,7 +100,7 @@ class TestExtractCookiesRaw:
             "__Secure-next-auth.session-token": "eyJ0eXAiOiJKV1QiLCJhbGc...",
         }
 
-        import perplexity_deep_research.cookies as cookies_mod
+        import deep_research.cookies as cookies_mod
 
         fake_profile = tmp_path / "Default"
         fake_profile.mkdir()
@@ -111,15 +111,15 @@ class TestExtractCookiesRaw:
             cookies_mod, "list_chrome_profiles_ordered", lambda: [fake_profile]
         )
         with patch(
-            "perplexity_deep_research.cookies.get_chrome_cookie_path",
+            "deep_research.cookies.get_chrome_cookie_path",
             return_value="/fake/Cookies",
         ):
             with patch(
-                "perplexity_deep_research.cookies._extract_cookies_linux_native",
+                "deep_research.cookies._extract_cookies_linux_native",
                 side_effect=RuntimeError("native failed"),
             ):
                 with patch(
-                    "perplexity_deep_research.cookies.chrome_cookies"
+                    "deep_research.cookies.chrome_cookies"
                 ) as mock_chrome:
                     mock_chrome.return_value = raw_cookies
                     result = extract_cookies_raw()
@@ -350,13 +350,13 @@ class TestExtractCookiesWithRelaunch:
 
         with (
             patch(
-                "perplexity_deep_research.cookies.check_full_disk_access"
+                "deep_research.cookies.check_full_disk_access"
             ) as mock_fda,
             patch(
-                "perplexity_deep_research.cookies.extract_cookies_raw"
+                "deep_research.cookies.extract_cookies_raw"
             ) as mock_extract,
             patch(
-                "perplexity_deep_research.cookies.ensure_chrome_accessible"
+                "deep_research.cookies.ensure_chrome_accessible"
             ) as mock_ensure,
         ):
             mock_fda.return_value = True
@@ -377,15 +377,15 @@ class TestExtractCookiesWithRelaunch:
 
         with (
             patch(
-                "perplexity_deep_research.cookies.check_full_disk_access"
+                "deep_research.cookies.check_full_disk_access"
             ) as mock_fda,
             patch(
-                "perplexity_deep_research.cookies.extract_cookies_raw"
+                "deep_research.cookies.extract_cookies_raw"
             ) as mock_extract,
             patch(
-                "perplexity_deep_research.cookies.ensure_chrome_accessible"
+                "deep_research.cookies.ensure_chrome_accessible"
             ) as mock_ensure,
-            patch("perplexity_deep_research.cookies.relaunch_chrome") as mock_relaunch,
+            patch("deep_research.cookies.relaunch_chrome") as mock_relaunch,
         ):
             mock_fda.return_value = True
             mock_extract.side_effect = [lock_error, raw_cookies]
@@ -405,13 +405,13 @@ class TestExtractCookiesWithRelaunch:
 
         with (
             patch(
-                "perplexity_deep_research.cookies.check_full_disk_access"
+                "deep_research.cookies.check_full_disk_access"
             ) as mock_fda,
             patch(
-                "perplexity_deep_research.cookies.extract_cookies_raw"
+                "deep_research.cookies.extract_cookies_raw"
             ) as mock_extract,
             patch(
-                "perplexity_deep_research.cookies.ensure_chrome_accessible"
+                "deep_research.cookies.ensure_chrome_accessible"
             ) as mock_ensure,
         ):
             mock_fda.return_value = True
@@ -427,13 +427,13 @@ class TestExtractCookiesWithRelaunch:
 
         with (
             patch(
-                "perplexity_deep_research.cookies.check_full_disk_access"
+                "deep_research.cookies.check_full_disk_access"
             ) as mock_fda,
             patch(
-                "perplexity_deep_research.cookies.extract_cookies_raw"
+                "deep_research.cookies.extract_cookies_raw"
             ) as mock_extract,
             patch(
-                "perplexity_deep_research.cookies.ensure_chrome_accessible"
+                "deep_research.cookies.ensure_chrome_accessible"
             ) as mock_ensure,
         ):
             mock_fda.return_value = True
@@ -448,10 +448,10 @@ class TestExtractCookiesWithRelaunch:
         """Test that error is raised if Full Disk Access is missing."""
         with (
             patch(
-                "perplexity_deep_research.cookies.check_full_disk_access"
+                "deep_research.cookies.check_full_disk_access"
             ) as mock_fda,
             patch(
-                "perplexity_deep_research.cookies.show_full_disk_access_dialog"
+                "deep_research.cookies.show_full_disk_access_dialog"
             ) as mock_dialog,
         ):
             mock_fda.return_value = False
@@ -472,13 +472,13 @@ class TestExtractCookiesWithRelaunch:
 
         with (
             patch(
-                "perplexity_deep_research.cookies.check_full_disk_access"
+                "deep_research.cookies.check_full_disk_access"
             ) as mock_fda,
             patch(
-                "perplexity_deep_research.cookies.extract_cookies_raw"
+                "deep_research.cookies.extract_cookies_raw"
             ) as mock_extract,
             patch(
-                "perplexity_deep_research.cookies.prompt_keychain_password"
+                "deep_research.cookies.prompt_keychain_password"
             ) as mock_prompt,
         ):
             mock_fda.return_value = True
@@ -496,13 +496,13 @@ class TestExtractCookiesWithRelaunch:
 
         with (
             patch(
-                "perplexity_deep_research.cookies.check_full_disk_access"
+                "deep_research.cookies.check_full_disk_access"
             ) as mock_fda,
             patch(
-                "perplexity_deep_research.cookies.extract_cookies_raw"
+                "deep_research.cookies.extract_cookies_raw"
             ) as mock_extract,
             patch(
-                "perplexity_deep_research.cookies.prompt_keychain_password"
+                "deep_research.cookies.prompt_keychain_password"
             ) as mock_prompt,
         ):
             mock_fda.return_value = True
@@ -520,7 +520,7 @@ class TestGetCookies:
 
     def test_get_cookies_returns_cached(self, isolate_cookies_file):
         """Cached perplexity entry in the config store is returned without extraction."""
-        from perplexity_deep_research import profile_config
+        from deep_research import profile_config
 
         cookies = {
             "session_token": "cached_token",
@@ -530,10 +530,10 @@ class TestGetCookies:
 
         with (
             patch(
-                "perplexity_deep_research.cookies.extract_cookies_with_relaunch"
+                "deep_research.cookies.extract_cookies_with_relaunch"
             ) as mock_extract,
             patch(
-                "perplexity_deep_research.cookies.extract_cookies_all_profiles"
+                "deep_research.cookies.extract_cookies_all_profiles"
             ) as mock_all,
         ):
             result = get_cookies()
@@ -552,10 +552,10 @@ class TestGetCookies:
 
         with (
             patch(
-                "perplexity_deep_research.cookies.extract_cookies_with_relaunch"
+                "deep_research.cookies.extract_cookies_with_relaunch"
             ) as mock_extract,
             patch(
-                "perplexity_deep_research.cookies.extract_cookies_all_profiles"
+                "deep_research.cookies.extract_cookies_all_profiles"
             ) as mock_all,
         ):
             result = get_cookies()
@@ -568,7 +568,7 @@ class TestGetCookies:
         self, isolate_cookies_file
     ):
         """Cache empty → multi-profile harvest fires and persists every profile."""
-        from perplexity_deep_research import profile_config
+        from deep_research import profile_config
 
         fresh = {
             "session_token": "fresh_token",
@@ -576,15 +576,15 @@ class TestGetCookies:
         }
         with (
             patch(
-                "perplexity_deep_research.cookies.extract_cookies_all_profiles",
+                "deep_research.cookies.extract_cookies_all_profiles",
                 return_value=[("Default", fresh), ("Profile 1", {"session_token": "p1"})],
             ),
             patch(
-                "perplexity_deep_research.cookies._preferred_profile_order",
+                "deep_research.cookies._preferred_profile_order",
                 return_value=["Default", "Profile 1"],
             ),
             patch(
-                "perplexity_deep_research.cookies.extract_cookies_with_relaunch"
+                "deep_research.cookies.extract_cookies_with_relaunch"
             ) as mock_relaunch,
         ):
             result = get_cookies()
@@ -599,7 +599,7 @@ class TestGetCookies:
         self, isolate_cookies_file
     ):
         """Harvest empty → relaunch path runs and its result is stored."""
-        from perplexity_deep_research import profile_config
+        from deep_research import profile_config
 
         fresh = {
             "session_token": "relaunch_token",
@@ -607,11 +607,11 @@ class TestGetCookies:
         }
         with (
             patch(
-                "perplexity_deep_research.cookies.extract_cookies_all_profiles",
+                "deep_research.cookies.extract_cookies_all_profiles",
                 return_value=[],
             ),
             patch(
-                "perplexity_deep_research.cookies.extract_cookies_with_relaunch",
+                "deep_research.cookies.extract_cookies_with_relaunch",
                 return_value=fresh,
             ),
         ):
@@ -622,7 +622,7 @@ class TestGetCookies:
 
     def test_get_cookies_extracts_fresh_if_expired(self, isolate_cookies_file):
         """Expired config-store entry → re-scan via multi-profile harvest."""
-        from perplexity_deep_research import profile_config
+        from deep_research import profile_config
 
         old = {
             "session_token": "old_token",
@@ -638,11 +638,11 @@ class TestGetCookies:
         }
         with (
             patch(
-                "perplexity_deep_research.cookies.extract_cookies_all_profiles",
+                "deep_research.cookies.extract_cookies_all_profiles",
                 return_value=[("Default", fresh)],
             ),
             patch(
-                "perplexity_deep_research.cookies._preferred_profile_order",
+                "deep_research.cookies._preferred_profile_order",
                 return_value=["Default"],
             ),
         ):
@@ -659,7 +659,7 @@ class TestDatabaseLockedDetection:
 
     def test_database_locked_detection(self):
         """Test is_database_locked_error() detects lock patterns."""
-        from perplexity_deep_research.config import is_database_locked_error
+        from deep_research.config import is_database_locked_error
 
         # Test various lock error messages
         lock_errors = [
@@ -674,7 +674,7 @@ class TestDatabaseLockedDetection:
 
     def test_database_locked_detection_non_lock_error(self):
         """Test is_database_locked_error() returns False for non-lock errors."""
-        from perplexity_deep_research.config import is_database_locked_error
+        from deep_research.config import is_database_locked_error
 
         non_lock_errors = [
             OperationalError("table not found"),
@@ -696,7 +696,7 @@ class TestGetChromeCookiePath:
         cookie_file.parent.mkdir(parents=True)
         cookie_file.touch()
 
-        with patch("perplexity_deep_research.cookies.Path.home", return_value=tmp_path):
+        with patch("deep_research.cookies.Path.home", return_value=tmp_path):
             result = get_chrome_cookie_path()
 
         assert isinstance(result, str)
@@ -709,7 +709,7 @@ class TestGetChromeCookiePath:
         cookie_file.parent.mkdir(parents=True)
         cookie_file.touch()
 
-        with patch("perplexity_deep_research.cookies.Path.home", return_value=tmp_path):
+        with patch("deep_research.cookies.Path.home", return_value=tmp_path):
             result = get_chrome_cookie_path()
 
         assert isinstance(result, str)
@@ -723,7 +723,7 @@ class TestGetChromeCookiePath:
         cookie_file.parent.mkdir(parents=True)
         cookie_file.touch()
 
-        with patch("perplexity_deep_research.cookies.Path.home", return_value=tmp_path):
+        with patch("deep_research.cookies.Path.home", return_value=tmp_path):
             result = get_chrome_cookie_path()
 
         assert isinstance(result, str)
@@ -737,7 +737,7 @@ class TestGetChromeCookiePath:
         cookie_file.parent.mkdir(parents=True)
         cookie_file.touch()
 
-        with patch("perplexity_deep_research.cookies.Path.home", return_value=tmp_path):
+        with patch("deep_research.cookies.Path.home", return_value=tmp_path):
             result = get_chrome_cookie_path(profile="Profile 1")
 
         assert isinstance(result, str)
@@ -749,7 +749,7 @@ class TestGetChromeCookiePath:
         # POSIX paths: Path.home() → /nonexistent
         # Windows path: LOCALAPPDATA → tmp_path/empty
         monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "empty_localappdata"))
-        with patch("perplexity_deep_research.cookies.Path.home") as mock_home:
+        with patch("deep_research.cookies.Path.home") as mock_home:
             mock_home.return_value = Path("/nonexistent")
 
             with pytest.raises(
@@ -817,7 +817,7 @@ class TestExtractCookiesWindowsRookiepy:
 
     def test_extract_cookies_windows_rookiepy_success(self):
         """rookiepy returns Perplexity cookies → flattened keeping first-seen value."""
-        from perplexity_deep_research.cookies import _extract_cookies_windows_rookiepy
+        from deep_research.cookies import _extract_cookies_windows_rookiepy
 
         rookiepy_output = [
             {"name": "__Secure-next-auth.session-token", "value": "tok123", "domain": ".perplexity.ai"},
@@ -837,7 +837,7 @@ class TestExtractCookiesWindowsRookiepy:
 
     def test_extract_cookies_windows_rookiepy_first_value_wins(self):
         """When the same cookie name appears twice (multi-profile), keep the FIRST one."""
-        from perplexity_deep_research.cookies import _extract_cookies_windows_rookiepy
+        from deep_research.cookies import _extract_cookies_windows_rookiepy
 
         rookiepy_output = [
             {"name": "__Secure-next-auth.session-token", "value": "good", "domain": ".perplexity.ai"},
@@ -853,7 +853,7 @@ class TestExtractCookiesWindowsRookiepy:
 
     def test_extract_cookies_windows_rookiepy_missing_raises_friendly(self):
         """Without rookiepy, raise a CookieExtractionError mentioning the install command."""
-        from perplexity_deep_research.cookies import _extract_cookies_windows_rookiepy
+        from deep_research.cookies import _extract_cookies_windows_rookiepy
 
         with patch.dict("sys.modules", {"rookiepy": None}):
             with pytest.raises(CookieExtractionError, match="rookiepy"):
@@ -861,11 +861,11 @@ class TestExtractCookiesWindowsRookiepy:
 
     def test_extract_cookies_raw_uses_rookiepy_on_win32(self, monkeypatch):
         """extract_cookies_raw on win32 must dispatch to the rookiepy helper."""
-        import perplexity_deep_research.cookies as cookies_mod
+        import deep_research.cookies as cookies_mod
 
         monkeypatch.setattr(cookies_mod.sys, "platform", "win32")
         with patch(
-            "perplexity_deep_research.cookies._extract_cookies_windows_rookiepy",
+            "deep_research.cookies._extract_cookies_windows_rookiepy",
             return_value={"__Secure-next-auth.session-token": "tok"},
         ) as mock_rookie:
             result = extract_cookies_raw()

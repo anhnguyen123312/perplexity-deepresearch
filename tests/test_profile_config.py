@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from perplexity_deep_research import profile_config as pc
+from deep_research import profile_config as pc
 
 
 @pytest.fixture(autouse=True)

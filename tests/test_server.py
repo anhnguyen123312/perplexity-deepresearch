@@ -3,7 +3,7 @@
 import pytest
 from unittest.mock import Mock, patch, MagicMock
 
-from perplexity_deep_research.server import (
+from deep_research.server import (
     mcp,
     get_client,
     deep_research,
@@ -19,7 +19,7 @@ class TestPerplexityToolsRegistered:
 
     def test_perplexity_tools_registered(self):
         """Assert deep_research, ask, reason, search, follow_up are registered."""
-        from perplexity_deep_research import server
+        from deep_research import server
 
         for name in ("deep_research", "ask", "reason", "search", "follow_up"):
             assert hasattr(server, name)
@@ -37,7 +37,7 @@ class TestPerplexityToolsRegistered:
 class TestDeepResearchCallable:
     """Test deep_research tool is callable."""
 
-    @patch("perplexity_deep_research.server.get_client")
+    @patch("deep_research.server.get_client")
     def test_deep_research_callable(self, mock_get_client):
         """Call deep_research, assert returns dict."""
         # Mock client
@@ -63,7 +63,7 @@ class TestDeepResearchCallable:
         assert call_kwargs["query"] == "test query"
         assert call_kwargs["follow_up"] is None
 
-    @patch("perplexity_deep_research.server.get_client")
+    @patch("deep_research.server.get_client")
     def test_deep_research_with_custom_sources(self, mock_get_client):
         """Test deep_research with custom sources."""
         mock_client = Mock()
@@ -80,7 +80,7 @@ class TestDeepResearchCallable:
         call_kwargs = mock_client.search.call_args[1]
         assert call_kwargs["sources"] == ["web", "scholar"]
 
-    @patch("perplexity_deep_research.server.get_client")
+    @patch("deep_research.server.get_client")
     def test_deep_research_with_custom_language(self, mock_get_client):
         """Test deep_research with custom language."""
         mock_client = Mock()
@@ -101,7 +101,7 @@ class TestDeepResearchCallable:
 class TestAskCallable:
     """Test ask tool is callable."""
 
-    @patch("perplexity_deep_research.server.get_client")
+    @patch("deep_research.server.get_client")
     def test_ask_callable(self, mock_get_client):
         """Call ask, assert returns dict."""
         # Mock client
@@ -127,7 +127,7 @@ class TestAskCallable:
         assert call_kwargs["query"] == "test query"
         assert call_kwargs["follow_up"] is None
 
-    @patch("perplexity_deep_research.server.get_client")
+    @patch("deep_research.server.get_client")
     def test_ask_with_custom_sources(self, mock_get_client):
         """Test ask with custom sources."""
         mock_client = Mock()
@@ -148,7 +148,7 @@ class TestAskCallable:
 class TestSearchCallable:
     """Test search tool is callable."""
 
-    @patch("perplexity_deep_research.server.get_client")
+    @patch("deep_research.server.get_client")
     def test_search_callable(self, mock_get_client):
         """Call search, assert returns dict."""
         # Mock client
@@ -174,7 +174,7 @@ class TestSearchCallable:
         assert call_kwargs["query"] == "test query"
         assert call_kwargs["follow_up"] is None
 
-    @patch("perplexity_deep_research.server.get_client")
+    @patch("deep_research.server.get_client")
     def test_search_with_custom_language(self, mock_get_client):
         """Test search with custom language."""
         mock_client = Mock()
@@ -195,7 +195,7 @@ class TestSearchCallable:
 class TestFollowUpCallable:
     """Test follow_up tool is callable."""
 
-    @patch("perplexity_deep_research.server.get_client")
+    @patch("deep_research.server.get_client")
     def test_follow_up_callable(self, mock_get_client):
         """Call follow_up, assert returns dict."""
         # Mock client
@@ -223,7 +223,7 @@ class TestFollowUpCallable:
         assert call_kwargs["sources"] == ["web"]
         assert call_kwargs["language"] == "en-US"
 
-    @patch("perplexity_deep_research.server.get_client")
+    @patch("deep_research.server.get_client")
     def test_follow_up_payload_includes_uuid(self, mock_get_client):
         """Test follow_up passes backend_uuid correctly."""
         mock_client = Mock()
@@ -245,7 +245,7 @@ class TestFollowUpCallable:
 class TestToolReturnsAnswerDict:
     """Test each tool returns dict with answer or error key."""
 
-    @patch("perplexity_deep_research.server.get_client")
+    @patch("deep_research.server.get_client")
     def test_deep_research_returns_answer_dict(self, mock_get_client):
         """Test deep_research returns dict with answer key."""
         mock_client = Mock()
@@ -262,7 +262,7 @@ class TestToolReturnsAnswerDict:
         assert "answer" in result
         assert result["answer"] == "Research answer"
 
-    @patch("perplexity_deep_research.server.get_client")
+    @patch("deep_research.server.get_client")
     def test_ask_returns_answer_dict(self, mock_get_client):
         """Test ask returns dict with answer key."""
         mock_client = Mock()
@@ -279,7 +279,7 @@ class TestToolReturnsAnswerDict:
         assert "answer" in result
         assert result["answer"] == "Pro answer"
 
-    @patch("perplexity_deep_research.server.get_client")
+    @patch("deep_research.server.get_client")
     def test_search_returns_answer_dict(self, mock_get_client):
         """Test search returns dict with answer key."""
         mock_client = Mock()
@@ -296,7 +296,7 @@ class TestToolReturnsAnswerDict:
         assert "answer" in result
         assert result["answer"] == "Search answer"
 
-    @patch("perplexity_deep_research.server.get_client")
+    @patch("deep_research.server.get_client")
     def test_follow_up_returns_answer_dict(self, mock_get_client):
         """Test follow_up returns dict with answer key."""
         mock_client = Mock()
@@ -317,7 +317,7 @@ class TestToolReturnsAnswerDict:
 class TestErrorHandling:
     """Test error handling in all tools."""
 
-    @patch("perplexity_deep_research.server.get_client")
+    @patch("deep_research.server.get_client")
     def test_deep_research_error_handling(self, mock_get_client):
         """Test deep_research catches exceptions and returns error dict."""
         mock_client = Mock()
@@ -330,7 +330,7 @@ class TestErrorHandling:
         assert "error" in result
         assert "Test error" in result["error"]
 
-    @patch("perplexity_deep_research.server.get_client")
+    @patch("deep_research.server.get_client")
     def test_ask_error_handling(self, mock_get_client):
         """Test ask catches exceptions and returns error dict."""
         mock_client = Mock()
@@ -343,7 +343,7 @@ class TestErrorHandling:
         assert "error" in result
         assert "Test error" in result["error"]
 
-    @patch("perplexity_deep_research.server.get_client")
+    @patch("deep_research.server.get_client")
     def test_search_error_handling(self, mock_get_client):
         """Test search catches exceptions and returns error dict."""
         mock_client = Mock()
@@ -356,7 +356,7 @@ class TestErrorHandling:
         assert "error" in result
         assert "Test error" in result["error"]
 
-    @patch("perplexity_deep_research.server.get_client")
+    @patch("deep_research.server.get_client")
     def test_follow_up_error_handling(self, mock_get_client):
         """Test follow_up catches exceptions and returns error dict."""
         mock_client = Mock()
@@ -369,7 +369,7 @@ class TestErrorHandling:
         assert "error" in result
         assert "Test error" in result["error"]
 
-    @patch("perplexity_deep_research.server.get_client")
+    @patch("deep_research.server.get_client")
     def test_error_handling_with_different_exception_types(self, mock_get_client):
         """Test error handling with various exception types."""
         mock_client = Mock()
@@ -391,11 +391,11 @@ class TestErrorHandling:
 class TestLazySingleton:
     """Test lazy singleton pattern for get_client."""
 
-    @patch("perplexity_deep_research.server.PerplexityClient")
+    @patch("deep_research.server.PerplexityClient")
     def test_get_client_creates_client_once(self, mock_client_class):
         """Test get_client creates client only once."""
         # Reset the global _client
-        import perplexity_deep_research.server as server_module
+        import deep_research.server as server_module
 
         server_module._client = None
 
@@ -413,10 +413,10 @@ class TestLazySingleton:
         # Both should be the same object
         assert client1 is client2
 
-    @patch("perplexity_deep_research.server.PerplexityClient")
+    @patch("deep_research.server.PerplexityClient")
     def test_get_client_returns_perplexity_client(self, mock_client_class):
         """Test get_client returns PerplexityClient instance."""
-        import perplexity_deep_research.server as server_module
+        import deep_research.server as server_module
 
         server_module._client = None
 
@@ -431,7 +431,7 @@ class TestLazySingleton:
 class TestToolSignatures:
     """Test tool signatures match specification."""
 
-    @patch("perplexity_deep_research.server.get_client")
+    @patch("deep_research.server.get_client")
     def test_deep_research_signature(self, mock_get_client):
         """Test deep_research has correct signature."""
         mock_client = Mock()
@@ -453,7 +453,7 @@ class TestToolSignatures:
         assert call_kwargs["sources"] == ["web", "scholar"]
         assert call_kwargs["language"] == "en-US"
 
-    @patch("perplexity_deep_research.server.get_client")
+    @patch("deep_research.server.get_client")
     def test_ask_signature(self, mock_get_client):
         """Test ask has correct signature."""
         mock_client = Mock()
@@ -473,7 +473,7 @@ class TestToolSignatures:
         assert call_kwargs["sources"] == ["web"]
         assert call_kwargs["language"] == "fr-FR"
 
-    @patch("perplexity_deep_research.server.get_client")
+    @patch("deep_research.server.get_client")
     def test_search_signature(self, mock_get_client):
         """Test search has correct signature."""
         mock_client = Mock()
@@ -493,7 +493,7 @@ class TestToolSignatures:
         assert call_kwargs["sources"] == ["web"]
         assert call_kwargs["language"] == "en-US"
 
-    @patch("perplexity_deep_research.server.get_client")
+    @patch("deep_research.server.get_client")
     def test_follow_up_signature(self, mock_get_client):
         """Test follow_up has correct signature."""
         mock_client = Mock()

@@ -14,8 +14,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from perplexity_deep_research.gemini import client as gclient
-from perplexity_deep_research.gemini.client import (
+from deep_research.gemini import client as gclient
+from deep_research.gemini.client import (
     GeminiClient,
     _detect_stage1_error,
 )

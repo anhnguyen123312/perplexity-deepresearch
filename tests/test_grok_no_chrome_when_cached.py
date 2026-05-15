@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from perplexity_deep_research.grok.client import GrokClient
+from deep_research.grok.client import GrokClient
 
 
 def _fake_stream_lines() -> list[bytes]:
@@ -38,13 +38,13 @@ def fake_cookies() -> dict[str, str]:
 def test_no_chrome_when_statsig_and_cookies_cached(fake_cookies):
     """Happy path: both caches hot ⇒ Chrome capture must NOT be invoked."""
     with patch(
-        "perplexity_deep_research.grok.client.get_grok_cookies_cached",
+        "deep_research.grok.client.get_grok_cookies_cached",
         return_value=fake_cookies,
     ), patch(
-        "perplexity_deep_research.grok.statsig.get_cached_statsig_id",
+        "deep_research.grok.statsig.get_cached_statsig_id",
         return_value="CACHED_SID",
     ) as get_cached, patch(
-        "perplexity_deep_research.grok.statsig.capture_statsig_id_via_chrome"
+        "deep_research.grok.statsig.capture_statsig_id_via_chrome"
     ) as capture, patch(
         "curl_cffi.requests.Session.post",
         return_value=_fake_response(200),
@@ -62,13 +62,13 @@ def test_no_chrome_when_statsig_and_cookies_cached(fake_cookies):
 def test_chrome_capture_when_statsig_missing(fake_cookies):
     """Cold statsig cache ⇒ capture invoked once."""
     with patch(
-        "perplexity_deep_research.grok.client.get_grok_cookies_cached",
+        "deep_research.grok.client.get_grok_cookies_cached",
         return_value=fake_cookies,
     ), patch(
-        "perplexity_deep_research.grok.statsig.get_cached_statsig_id",
+        "deep_research.grok.statsig.get_cached_statsig_id",
         return_value=None,
     ), patch(
-        "perplexity_deep_research.grok.statsig.capture_statsig_id_via_chrome",
+        "deep_research.grok.statsig.capture_statsig_id_via_chrome",
         return_value="FRESH_SID",
     ) as capture, patch(
         "curl_cffi.requests.Session.post",
@@ -87,13 +87,13 @@ def test_chrome_capture_on_403_anti_bot(fake_cookies):
     responses = [_fake_response(403, body=err_body), _fake_response(200)]
 
     with patch(
-        "perplexity_deep_research.grok.client.get_grok_cookies_cached",
+        "deep_research.grok.client.get_grok_cookies_cached",
         return_value=fake_cookies,
     ), patch(
-        "perplexity_deep_research.grok.statsig.get_cached_statsig_id",
+        "deep_research.grok.statsig.get_cached_statsig_id",
         return_value="STALE_SID",
     ), patch(
-        "perplexity_deep_research.grok.statsig.capture_statsig_id_via_chrome",
+        "deep_research.grok.statsig.capture_statsig_id_via_chrome",
         return_value="FRESH_SID",
     ) as capture, patch(
         "curl_cffi.requests.Session.post",
@@ -110,15 +110,15 @@ def test_chrome_capture_on_403_anti_bot(fake_cookies):
 def test_no_chrome_on_401(fake_cookies):
     """401 ⇒ invalidate cookies + return error, no Chrome capture."""
     with patch(
-        "perplexity_deep_research.grok.client.get_grok_cookies_cached",
+        "deep_research.grok.client.get_grok_cookies_cached",
         return_value=fake_cookies,
     ), patch(
-        "perplexity_deep_research.grok.statsig.get_cached_statsig_id",
+        "deep_research.grok.statsig.get_cached_statsig_id",
         return_value="CACHED_SID",
     ), patch(
-        "perplexity_deep_research.grok.statsig.capture_statsig_id_via_chrome"
+        "deep_research.grok.statsig.capture_statsig_id_via_chrome"
     ) as capture, patch(
-        "perplexity_deep_research.grok.client.invalidate_grok_cache"
+        "deep_research.grok.client.invalidate_grok_cache"
     ) as inval, patch(
         "curl_cffi.requests.Session.post",
         return_value=_fake_response(401, body=b"unauthorized"),

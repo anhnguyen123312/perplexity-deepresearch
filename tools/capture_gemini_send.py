@@ -30,7 +30,7 @@ from playwright.sync_api import Request, Response, sync_playwright
 from playwright_stealth import Stealth
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from perplexity_deep_research.cookies import (  # noqa: E402
+from deep_research.cookies import (  # noqa: E402
     _profile_cookie_db,
     list_chrome_profiles_ordered,
 )

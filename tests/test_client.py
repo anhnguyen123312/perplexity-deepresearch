@@ -17,9 +17,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from perplexity_deep_research.client import PerplexityClient
-from perplexity_deep_research.config import DEFAULT_HEADERS
-from perplexity_deep_research.exceptions import (
+from deep_research.perplexity.client import PerplexityClient
+from deep_research.config import DEFAULT_HEADERS
+from deep_research.exceptions import (
     AuthenticationError,
     PerplexityError,
     RateLimitError,
@@ -99,13 +99,13 @@ class TestClientUsesChromImpersonation:
         """Mock Session constructor, assert impersonate='chrome'."""
         with (
             patch(
-                "perplexity_deep_research.client.get_cookies", return_value=mock_cookies
+                "deep_research.perplexity.client.get_cookies", return_value=mock_cookies
             ),
             patch(
-                "perplexity_deep_research.client.to_http_cookies",
+                "deep_research.perplexity.client.to_http_cookies",
                 return_value={"test": "cookie"},
             ),
-            patch("perplexity_deep_research.client.requests.Session") as mock_session,
+            patch("deep_research.perplexity.client.requests.Session") as mock_session,
         ):
             mock_session.return_value.get = MagicMock()
 
@@ -123,13 +123,13 @@ class TestClientUsesDefaultHeaders:
         """Assert headers contains 20 entries."""
         with (
             patch(
-                "perplexity_deep_research.client.get_cookies", return_value=mock_cookies
+                "deep_research.perplexity.client.get_cookies", return_value=mock_cookies
             ),
             patch(
-                "perplexity_deep_research.client.to_http_cookies",
+                "deep_research.perplexity.client.to_http_cookies",
                 return_value={"test": "cookie"},
             ),
-            patch("perplexity_deep_research.client.requests.Session") as mock_session,
+            patch("deep_research.perplexity.client.requests.Session") as mock_session,
         ):
             mock_session.return_value.get = MagicMock()
 
@@ -147,19 +147,19 @@ class TestAutoRefreshOn401:
         """Mock 401, verify _refresh_cookies called, verify retry."""
         with (
             patch(
-                "perplexity_deep_research.client.get_cookies", return_value=mock_cookies
+                "deep_research.perplexity.client.get_cookies", return_value=mock_cookies
             ),
             patch(
-                "perplexity_deep_research.client.to_http_cookies",
+                "deep_research.perplexity.client.to_http_cookies",
                 return_value={"test": "cookie"},
             ),
-            patch("perplexity_deep_research.client.requests.Session") as mock_session,
+            patch("deep_research.perplexity.client.requests.Session") as mock_session,
             patch(
-                "perplexity_deep_research.client.extract_cookies_with_relaunch",
+                "deep_research.perplexity.client.extract_cookies_with_relaunch",
                 return_value=mock_cookies,
             ),
-            patch("perplexity_deep_research.client.save_cookies"),
-            patch("perplexity_deep_research.client.time.sleep"),
+            patch("deep_research.perplexity.client.save_cookies"),
+            patch("deep_research.perplexity.client.time.sleep"),
         ):
             # First call returns 401, second returns 200
             mock_response_401 = MagicMock()
@@ -190,14 +190,14 @@ class TestSearchReturnsAnswerDict:
         """Mock successful response, assert shape."""
         with (
             patch(
-                "perplexity_deep_research.client.get_cookies", return_value=mock_cookies
+                "deep_research.perplexity.client.get_cookies", return_value=mock_cookies
             ),
             patch(
-                "perplexity_deep_research.client.to_http_cookies",
+                "deep_research.perplexity.client.to_http_cookies",
                 return_value={"test": "cookie"},
             ),
-            patch("perplexity_deep_research.client.requests.Session") as mock_session,
-            patch("perplexity_deep_research.client.time.sleep"),
+            patch("deep_research.perplexity.client.requests.Session") as mock_session,
+            patch("deep_research.perplexity.client.time.sleep"),
         ):
             mock_response = MagicMock()
             mock_response.status_code = 200
@@ -229,13 +229,13 @@ class TestParseSSEResponse:
         """Verify FINAL step parsing."""
         with (
             patch(
-                "perplexity_deep_research.client.get_cookies", return_value=mock_cookies
+                "deep_research.perplexity.client.get_cookies", return_value=mock_cookies
             ),
             patch(
-                "perplexity_deep_research.client.to_http_cookies",
+                "deep_research.perplexity.client.to_http_cookies",
                 return_value={"test": "cookie"},
             ),
-            patch("perplexity_deep_research.client.requests.Session") as mock_session,
+            patch("deep_research.perplexity.client.requests.Session") as mock_session,
         ):
             mock_session.return_value.get = MagicMock()
 
@@ -253,13 +253,13 @@ class TestParseSSEResponse:
         """Verify PerplexityError on no answer."""
         with (
             patch(
-                "perplexity_deep_research.client.get_cookies", return_value=mock_cookies
+                "deep_research.perplexity.client.get_cookies", return_value=mock_cookies
             ),
             patch(
-                "perplexity_deep_research.client.to_http_cookies",
+                "deep_research.perplexity.client.to_http_cookies",
                 return_value={"test": "cookie"},
             ),
-            patch("perplexity_deep_research.client.requests.Session") as mock_session,
+            patch("deep_research.perplexity.client.requests.Session") as mock_session,
         ):
             mock_session.return_value.get = MagicMock()
 
@@ -275,13 +275,13 @@ class TestParseSSEResponse:
         """Verify PerplexityError when no answer in response."""
         with (
             patch(
-                "perplexity_deep_research.client.get_cookies", return_value=mock_cookies
+                "deep_research.perplexity.client.get_cookies", return_value=mock_cookies
             ),
             patch(
-                "perplexity_deep_research.client.to_http_cookies",
+                "deep_research.perplexity.client.to_http_cookies",
                 return_value={"test": "cookie"},
             ),
-            patch("perplexity_deep_research.client.requests.Session") as mock_session,
+            patch("deep_research.perplexity.client.requests.Session") as mock_session,
         ):
             mock_session.return_value.get = MagicMock()
 
@@ -309,13 +309,13 @@ class TestExtractCitations:
         """Verify web_results extraction and 10-item cap."""
         with (
             patch(
-                "perplexity_deep_research.client.get_cookies", return_value=mock_cookies
+                "deep_research.perplexity.client.get_cookies", return_value=mock_cookies
             ),
             patch(
-                "perplexity_deep_research.client.to_http_cookies",
+                "deep_research.perplexity.client.to_http_cookies",
                 return_value={"test": "cookie"},
             ),
-            patch("perplexity_deep_research.client.requests.Session") as mock_session,
+            patch("deep_research.perplexity.client.requests.Session") as mock_session,
         ):
             mock_session.return_value.get = MagicMock()
 
@@ -342,13 +342,13 @@ class TestExtractCitations:
         """Verify duplicate URLs are removed."""
         with (
             patch(
-                "perplexity_deep_research.client.get_cookies", return_value=mock_cookies
+                "deep_research.perplexity.client.get_cookies", return_value=mock_cookies
             ),
             patch(
-                "perplexity_deep_research.client.to_http_cookies",
+                "deep_research.perplexity.client.to_http_cookies",
                 return_value={"test": "cookie"},
             ),
-            patch("perplexity_deep_research.client.requests.Session") as mock_session,
+            patch("deep_research.perplexity.client.requests.Session") as mock_session,
         ):
             mock_session.return_value.get = MagicMock()
 
@@ -379,13 +379,13 @@ class TestExtractCitations:
         """Verify widget_data fallback extraction."""
         with (
             patch(
-                "perplexity_deep_research.client.get_cookies", return_value=mock_cookies
+                "deep_research.perplexity.client.get_cookies", return_value=mock_cookies
             ),
             patch(
-                "perplexity_deep_research.client.to_http_cookies",
+                "deep_research.perplexity.client.to_http_cookies",
                 return_value={"test": "cookie"},
             ),
-            patch("perplexity_deep_research.client.requests.Session") as mock_session,
+            patch("deep_research.perplexity.client.requests.Session") as mock_session,
         ):
             mock_session.return_value.get = MagicMock()
 
@@ -413,16 +413,16 @@ class TestRandomDelay:
         """Mock time.sleep, assert called with value in [1.0, 3.0]."""
         with (
             patch(
-                "perplexity_deep_research.client.get_cookies", return_value=mock_cookies
+                "deep_research.perplexity.client.get_cookies", return_value=mock_cookies
             ),
             patch(
-                "perplexity_deep_research.client.to_http_cookies",
+                "deep_research.perplexity.client.to_http_cookies",
                 return_value={"test": "cookie"},
             ),
-            patch("perplexity_deep_research.client.requests.Session") as mock_session,
-            patch("perplexity_deep_research.client.time.sleep") as mock_sleep,
+            patch("deep_research.perplexity.client.requests.Session") as mock_session,
+            patch("deep_research.perplexity.client.time.sleep") as mock_sleep,
             patch(
-                "perplexity_deep_research.client.random.uniform", return_value=2.0
+                "deep_research.perplexity.client.random.uniform", return_value=2.0
             ) as mock_uniform,
         ):
             mock_response = MagicMock()
@@ -446,14 +446,14 @@ class TestErrorHandling:
         """Mock 429, assert RateLimitError."""
         with (
             patch(
-                "perplexity_deep_research.client.get_cookies", return_value=mock_cookies
+                "deep_research.perplexity.client.get_cookies", return_value=mock_cookies
             ),
             patch(
-                "perplexity_deep_research.client.to_http_cookies",
+                "deep_research.perplexity.client.to_http_cookies",
                 return_value={"test": "cookie"},
             ),
-            patch("perplexity_deep_research.client.requests.Session") as mock_session,
-            patch("perplexity_deep_research.client.time.sleep"),
+            patch("deep_research.perplexity.client.requests.Session") as mock_session,
+            patch("deep_research.perplexity.client.time.sleep"),
         ):
             mock_response = MagicMock()
             mock_response.status_code = 429
@@ -471,14 +471,14 @@ class TestErrorHandling:
         """Mock 500, assert PerplexityError."""
         with (
             patch(
-                "perplexity_deep_research.client.get_cookies", return_value=mock_cookies
+                "deep_research.perplexity.client.get_cookies", return_value=mock_cookies
             ),
             patch(
-                "perplexity_deep_research.client.to_http_cookies",
+                "deep_research.perplexity.client.to_http_cookies",
                 return_value={"test": "cookie"},
             ),
-            patch("perplexity_deep_research.client.requests.Session") as mock_session,
-            patch("perplexity_deep_research.client.time.sleep"),
+            patch("deep_research.perplexity.client.requests.Session") as mock_session,
+            patch("deep_research.perplexity.client.time.sleep"),
         ):
             mock_response = MagicMock()
             mock_response.status_code = 500
@@ -496,19 +496,19 @@ class TestErrorHandling:
         """Mock 401 twice, assert AuthenticationError."""
         with (
             patch(
-                "perplexity_deep_research.client.get_cookies", return_value=mock_cookies
+                "deep_research.perplexity.client.get_cookies", return_value=mock_cookies
             ),
             patch(
-                "perplexity_deep_research.client.to_http_cookies",
+                "deep_research.perplexity.client.to_http_cookies",
                 return_value={"test": "cookie"},
             ),
-            patch("perplexity_deep_research.client.requests.Session") as mock_session,
+            patch("deep_research.perplexity.client.requests.Session") as mock_session,
             patch(
-                "perplexity_deep_research.client.extract_cookies_with_relaunch",
+                "deep_research.perplexity.client.extract_cookies_with_relaunch",
                 return_value=mock_cookies,
             ),
-            patch("perplexity_deep_research.client.save_cookies"),
-            patch("perplexity_deep_research.client.time.sleep"),
+            patch("deep_research.perplexity.client.save_cookies"),
+            patch("deep_research.perplexity.client.time.sleep"),
         ):
             mock_response = MagicMock()
             mock_response.status_code = 401
@@ -532,14 +532,14 @@ class TestFollowUpPayload:
         """Assert params.last_backend_uuid equals UUID."""
         with (
             patch(
-                "perplexity_deep_research.client.get_cookies", return_value=mock_cookies
+                "deep_research.perplexity.client.get_cookies", return_value=mock_cookies
             ),
             patch(
-                "perplexity_deep_research.client.to_http_cookies",
+                "deep_research.perplexity.client.to_http_cookies",
                 return_value={"test": "cookie"},
             ),
-            patch("perplexity_deep_research.client.requests.Session") as mock_session,
-            patch("perplexity_deep_research.client.time.sleep"),
+            patch("deep_research.perplexity.client.requests.Session") as mock_session,
+            patch("deep_research.perplexity.client.time.sleep"),
         ):
             mock_response = MagicMock()
             mock_response.status_code = 200
@@ -572,14 +572,14 @@ class TestModeMapping:
         """Assert mode='copilot', model_preference='pplx_alpha'."""
         with (
             patch(
-                "perplexity_deep_research.client.get_cookies", return_value=mock_cookies
+                "deep_research.perplexity.client.get_cookies", return_value=mock_cookies
             ),
             patch(
-                "perplexity_deep_research.client.to_http_cookies",
+                "deep_research.perplexity.client.to_http_cookies",
                 return_value={"test": "cookie"},
             ),
-            patch("perplexity_deep_research.client.requests.Session") as mock_session,
-            patch("perplexity_deep_research.client.time.sleep"),
+            patch("deep_research.perplexity.client.requests.Session") as mock_session,
+            patch("deep_research.perplexity.client.time.sleep"),
         ):
             mock_response = MagicMock()
             mock_response.status_code = 200
@@ -607,14 +607,14 @@ class TestModeMapping:
         """Assert mode='copilot', model_preference='pplx_pro'."""
         with (
             patch(
-                "perplexity_deep_research.client.get_cookies", return_value=mock_cookies
+                "deep_research.perplexity.client.get_cookies", return_value=mock_cookies
             ),
             patch(
-                "perplexity_deep_research.client.to_http_cookies",
+                "deep_research.perplexity.client.to_http_cookies",
                 return_value={"test": "cookie"},
             ),
-            patch("perplexity_deep_research.client.requests.Session") as mock_session,
-            patch("perplexity_deep_research.client.time.sleep"),
+            patch("deep_research.perplexity.client.requests.Session") as mock_session,
+            patch("deep_research.perplexity.client.time.sleep"),
         ):
             mock_response = MagicMock()
             mock_response.status_code = 200
@@ -642,14 +642,14 @@ class TestModeMapping:
         """Assert mode='concise', model_preference='turbo'."""
         with (
             patch(
-                "perplexity_deep_research.client.get_cookies", return_value=mock_cookies
+                "deep_research.perplexity.client.get_cookies", return_value=mock_cookies
             ),
             patch(
-                "perplexity_deep_research.client.to_http_cookies",
+                "deep_research.perplexity.client.to_http_cookies",
                 return_value={"test": "cookie"},
             ),
-            patch("perplexity_deep_research.client.requests.Session") as mock_session,
-            patch("perplexity_deep_research.client.time.sleep"),
+            patch("deep_research.perplexity.client.requests.Session") as mock_session,
+            patch("deep_research.perplexity.client.time.sleep"),
         ):
             mock_response = MagicMock()
             mock_response.status_code = 200

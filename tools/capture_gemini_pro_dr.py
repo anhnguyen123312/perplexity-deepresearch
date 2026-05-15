@@ -14,7 +14,7 @@ from playwright.sync_api import Request, Response, sync_playwright
 from playwright_stealth import Stealth
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from perplexity_deep_research.cookies import _profile_cookie_db, list_chrome_profiles_ordered
+from deep_research.cookies import _profile_cookie_db, list_chrome_profiles_ordered
 from pycookiecheat import BrowserType, chrome_cookies
 
 REPO_ROOT = Path(__file__).resolve().parents[2]

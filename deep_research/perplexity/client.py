@@ -16,7 +16,7 @@ from curl_cffi import requests
 import logging
 import sys
 
-from .config import (
+from ..config import (
     API_VERSION,
     DEFAULT_HEADERS,
     ENDPOINT_AUTH_SESSION,
@@ -76,13 +76,13 @@ logging.basicConfig(
     stream=sys.stderr,
 )
 logger = logging.getLogger("perplexity-deep-research")
-from .cookies import (
+from ..cookies import (
     extract_cookies_with_relaunch,
     get_cookies,
     save_cookies,
     to_http_cookies,
 )
-from .exceptions import (
+from ..exceptions import (
     AuthenticationError,
     BlockedError,
     PerplexityError,

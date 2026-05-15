@@ -11,7 +11,7 @@ source .venv/bin/activate && python -m pytest tests/ -v
 source .venv/bin/activate && python -m pytest tests/test_browser_control.py -v
 
 # With coverage
-source .venv/bin/activate && python -m pytest tests/ --cov=perplexity_deep_research --cov-report=term-missing
+source .venv/bin/activate && python -m pytest tests/ --cov=deep_research --cov-report=term-missing
 ```
 
 ### Windows (PowerShell)
@@ -23,17 +23,17 @@ source .venv/bin/activate && python -m pytest tests/ --cov=perplexity_deep_resea
 .\.venv\Scripts\Activate.ps1; python -m pytest tests/test_browser_control.py -v
 
 # With coverage
-.\.venv\Scripts\Activate.ps1; python -m pytest tests/ --cov=perplexity_deep_research --cov-report=term-missing
+.\.venv\Scripts\Activate.ps1; python -m pytest tests/ --cov=deep_research --cov-report=term-missing
 ```
 
 ## Project Structure
 
-- `perplexity_deep_research/` — Main package (MCP server, API client, cookie extraction, browser control)
-- `perplexity_deep_research/profile_config.py` — Unified config.json store (perplexity + grok cookies, per-provider expiry, multi-profile, import/export)
-- `perplexity_deep_research/cli.py` — `perplexity-deep-research-config {show,export,import,set-expire,rescan}` CLI
+- `deep_research/` — Main package (MCP server, API client, cookie extraction, browser control)
+- `deep_research/profile_config.py` — Unified config.json store (perplexity + grok cookies, per-provider expiry, multi-profile, import/export)
+- `deep_research/cli.py` — `perplexity-deep-research-config {show,export,import,set-expire,rescan}` CLI
 - `tests/` — Test suite (all mocked — no real Chrome/API needed)
 - `setup_cookies.py` / `setup_cookies.bat` — Windows-only interactive cookie setup
-- `perplexity_deep_research/win_cookie_helper.py` — Elevated (UAC) helper for Windows v20 cookie decryption
+- `deep_research/win_cookie_helper.py` — Elevated (UAC) helper for Windows v20 cookie decryption
 
 ## Config store
 

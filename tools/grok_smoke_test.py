@@ -12,13 +12,13 @@ import json
 import sys
 from pathlib import Path
 
-from perplexity_deep_research.grok import GrokClient
-from perplexity_deep_research.grok.config import (
+from deep_research.grok import GrokClient
+from deep_research.grok.config import (
     MODE_GROK_4_3_BETA,
     VALID_MODES,
     get_statsig_cache_path,
 )
-from perplexity_deep_research.grok.statsig import store_statsig_id
+from deep_research.grok.statsig import store_statsig_id
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]

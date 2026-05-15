@@ -3,7 +3,7 @@
 from mcp.server.fastmcp import FastMCP
 
 from . import profile_config
-from .client import PerplexityClient
+from .perplexity.client import PerplexityClient
 from .gemini.client import GeminiClient
 from .grok.client import GrokClient
 from .grok.config import (

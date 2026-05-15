@@ -7,7 +7,7 @@ using the cached cookies. Confirms that the new payload schema is accepted
 import sys
 import time
 
-from perplexity_deep_research.client import PerplexityClient
+from deep_research.perplexity.client import PerplexityClient
 
 
 def run(mode: str, query: str, sources):

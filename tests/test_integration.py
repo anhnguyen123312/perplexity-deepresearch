@@ -3,13 +3,13 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
-from perplexity_deep_research.server import deep_research, ask, search, follow_up
+from deep_research.server import deep_research, ask, search, follow_up
 
 
 class TestFullFlow:
     """Test full flow: cookies → client → tools."""
 
-    @patch("perplexity_deep_research.server.get_client")
+    @patch("deep_research.server.get_client")
     def test_deep_research_full_flow(self, mock_get_client):
         """Test deep_research tool end-to-end."""
         # Mock client
@@ -35,7 +35,7 @@ class TestFullFlow:
             follow_up=None,
         )
 
-    @patch("perplexity_deep_research.server.get_client")
+    @patch("deep_research.server.get_client")
     def test_ask_full_flow(self, mock_get_client):
         """Test ask tool end-to-end."""
         mock_client = MagicMock()
@@ -51,7 +51,7 @@ class TestFullFlow:
         assert "answer" in result
         mock_client.search.assert_called_once()
 
-    @patch("perplexity_deep_research.server.get_client")
+    @patch("deep_research.server.get_client")
     def test_search_full_flow(self, mock_get_client):
         """Test search tool end-to-end."""
         mock_client = MagicMock()
@@ -67,7 +67,7 @@ class TestFullFlow:
         assert "answer" in result
         mock_client.search.assert_called_once()
 
-    @patch("perplexity_deep_research.server.get_client")
+    @patch("deep_research.server.get_client")
     def test_follow_up_full_flow(self, mock_get_client):
         """Test follow_up tool end-to-end."""
         mock_client = MagicMock()
@@ -93,10 +93,10 @@ class TestFullFlow:
 class TestErrorScenarios:
     """Test error handling end-to-end."""
 
-    @patch("perplexity_deep_research.server.get_client")
+    @patch("deep_research.server.get_client")
     def test_cookie_extraction_error(self, mock_get_client):
         """Test error when cookie extraction fails."""
-        from perplexity_deep_research.exceptions import CookieExtractionError
+        from deep_research.exceptions import CookieExtractionError
 
         mock_client = MagicMock()
         mock_client.search.side_effect = CookieExtractionError("Chrome not found")
@@ -107,10 +107,10 @@ class TestErrorScenarios:
         assert "error" in result
         assert "Chrome not found" in result["error"]
 
-    @patch("perplexity_deep_research.server.get_client")
+    @patch("deep_research.server.get_client")
     def test_authentication_error(self, mock_get_client):
         """Test error when authentication fails."""
-        from perplexity_deep_research.exceptions import AuthenticationError
+        from deep_research.exceptions import AuthenticationError
 
         mock_client = MagicMock()
         mock_client.search.side_effect = AuthenticationError("Auth failed")
@@ -121,10 +121,10 @@ class TestErrorScenarios:
         assert "error" in result
         assert "Auth failed" in result["error"]
 
-    @patch("perplexity_deep_research.server.get_client")
+    @patch("deep_research.server.get_client")
     def test_rate_limit_error(self, mock_get_client):
         """Test error when rate limited."""
-        from perplexity_deep_research.exceptions import RateLimitError
+        from deep_research.exceptions import RateLimitError
 
         mock_client = MagicMock()
         mock_client.search.side_effect = RateLimitError("Rate limit exceeded")
@@ -136,8 +136,8 @@ class TestErrorScenarios:
         assert "Rate limit exceeded" in result["error"]
 
 
-@patch("perplexity_deep_research.client.requests.Session")
-@patch("perplexity_deep_research.client.get_cookies")
+@patch("deep_research.perplexity.client.requests.Session")
+@patch("deep_research.perplexity.client.get_cookies")
 def test_client_to_server_integration(mock_get_cookies, mock_session_class):
     """Test integration between PerplexityClient and server logic."""
     mock_get_cookies.return_value = {"session_token": "fake-token"}
@@ -158,17 +158,17 @@ def test_client_to_server_integration(mock_get_cookies, mock_session_class):
     ]
     mock_session.request.return_value = mock_response
 
-    from perplexity_deep_research.server import get_client, deep_research
+    from deep_research.server import get_client, deep_research
 
     # Reset singleton for test
-    import perplexity_deep_research.server
+    import deep_research.server
 
-    perplexity_deep_research.server._client = None
+    deep_research.server._client = None
 
-    from perplexity_deep_research.server import deep_research
+    from deep_research.server import deep_research
 
     # Patch the client class to return a mock that returns our desired response
-    with patch("perplexity_deep_research.server.PerplexityClient") as mock_client_class:
+    with patch("deep_research.server.PerplexityClient") as mock_client_class:
         mock_client_instance = MagicMock()
         mock_client_class.return_value = mock_client_instance
         mock_client_instance.search.return_value = {

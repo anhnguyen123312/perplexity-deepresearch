@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from perplexity_deep_research.browser_control import (
+from deep_research.browser_control import (
     ChromeAccessResult,
     check_full_disk_access,
     ensure_chrome_accessible,
@@ -32,7 +32,7 @@ def _default_is_windows_false(request):
         yield
         return
     with patch(
-        "perplexity_deep_research.browser_control._is_windows", return_value=False
+        "deep_research.browser_control._is_windows", return_value=False
     ):
         yield
 
@@ -43,10 +43,10 @@ class TestIsChromeRunningMacOS:
         mock_result.stdout = "true\n"
 
         with patch(
-            "perplexity_deep_research.browser_control._is_macos", return_value=True
+            "deep_research.browser_control._is_macos", return_value=True
         ):
             with patch(
-                "perplexity_deep_research.browser_control._is_linux",
+                "deep_research.browser_control._is_linux",
                 return_value=False,
             ):
                 with patch("subprocess.run", return_value=mock_result) as mock_run:
@@ -66,10 +66,10 @@ class TestIsChromeRunningMacOS:
         mock_result.stdout = "false\n"
 
         with patch(
-            "perplexity_deep_research.browser_control._is_macos", return_value=True
+            "deep_research.browser_control._is_macos", return_value=True
         ):
             with patch(
-                "perplexity_deep_research.browser_control._is_linux",
+                "deep_research.browser_control._is_linux",
                 return_value=False,
             ):
                 with patch("subprocess.run", return_value=mock_result) as mock_run:
@@ -80,10 +80,10 @@ class TestIsChromeRunningMacOS:
 
     def test_is_chrome_running_timeout(self) -> None:
         with patch(
-            "perplexity_deep_research.browser_control._is_macos", return_value=True
+            "deep_research.browser_control._is_macos", return_value=True
         ):
             with patch(
-                "perplexity_deep_research.browser_control._is_linux",
+                "deep_research.browser_control._is_linux",
                 return_value=False,
             ):
                 with patch(
@@ -96,10 +96,10 @@ class TestIsChromeRunningMacOS:
 
     def test_is_chrome_running_subprocess_error(self) -> None:
         with patch(
-            "perplexity_deep_research.browser_control._is_macos", return_value=True
+            "deep_research.browser_control._is_macos", return_value=True
         ):
             with patch(
-                "perplexity_deep_research.browser_control._is_linux",
+                "deep_research.browser_control._is_linux",
                 return_value=False,
             ):
                 with patch(
@@ -117,10 +117,10 @@ class TestIsChromeRunningLinux:
         mock_result.returncode = 0
 
         with patch(
-            "perplexity_deep_research.browser_control._is_macos", return_value=False
+            "deep_research.browser_control._is_macos", return_value=False
         ):
             with patch(
-                "perplexity_deep_research.browser_control._is_linux",
+                "deep_research.browser_control._is_linux",
                 return_value=True,
             ):
                 with patch("subprocess.run", return_value=mock_result):
@@ -133,10 +133,10 @@ class TestIsChromeRunningLinux:
         mock_result.returncode = 1
 
         with patch(
-            "perplexity_deep_research.browser_control._is_macos", return_value=False
+            "deep_research.browser_control._is_macos", return_value=False
         ):
             with patch(
-                "perplexity_deep_research.browser_control._is_linux",
+                "deep_research.browser_control._is_linux",
                 return_value=True,
             ):
                 with patch("subprocess.run", return_value=mock_result):
@@ -161,10 +161,10 @@ class TestQuitChrome:
             return mock_check
 
         with patch(
-            "perplexity_deep_research.browser_control._is_macos", return_value=True
+            "deep_research.browser_control._is_macos", return_value=True
         ):
             with patch(
-                "perplexity_deep_research.browser_control._is_linux",
+                "deep_research.browser_control._is_linux",
                 return_value=False,
             ):
                 with patch("subprocess.run", side_effect=mock_run_side_effect):
@@ -182,10 +182,10 @@ class TestQuitChrome:
         mock_check.stdout = "true\n"
 
         with patch(
-            "perplexity_deep_research.browser_control._is_macos", return_value=True
+            "deep_research.browser_control._is_macos", return_value=True
         ):
             with patch(
-                "perplexity_deep_research.browser_control._is_linux",
+                "deep_research.browser_control._is_linux",
                 return_value=False,
             ):
                 with patch(
@@ -262,10 +262,10 @@ class TestRelaunchChrome:
         mock_check.stdout = "true\n"
 
         with patch(
-            "perplexity_deep_research.browser_control._is_macos", return_value=True
+            "deep_research.browser_control._is_macos", return_value=True
         ):
             with patch(
-                "perplexity_deep_research.browser_control._is_linux",
+                "deep_research.browser_control._is_linux",
                 return_value=False,
             ):
                 with patch("subprocess.run", side_effect=[mock_result, mock_check]):
@@ -282,10 +282,10 @@ class TestRelaunchChrome:
         mock_check.stdout = "false\n"
 
         with patch(
-            "perplexity_deep_research.browser_control._is_macos", return_value=True
+            "deep_research.browser_control._is_macos", return_value=True
         ):
             with patch(
-                "perplexity_deep_research.browser_control._is_linux",
+                "deep_research.browser_control._is_linux",
                 return_value=False,
             ):
                 with patch("subprocess.run", side_effect=[mock_result, mock_check]):
@@ -296,10 +296,10 @@ class TestRelaunchChrome:
 
     def test_relaunch_chrome_subprocess_error(self) -> None:
         with patch(
-            "perplexity_deep_research.browser_control._is_macos", return_value=True
+            "deep_research.browser_control._is_macos", return_value=True
         ):
             with patch(
-                "perplexity_deep_research.browser_control._is_linux",
+                "deep_research.browser_control._is_linux",
                 return_value=False,
             ):
                 with patch(
@@ -318,10 +318,10 @@ class TestEnsureChromeAccessible:
         mock_result.returncode = 1
 
         with patch(
-            "perplexity_deep_research.browser_control._is_macos", return_value=True
+            "deep_research.browser_control._is_macos", return_value=True
         ):
             with patch(
-                "perplexity_deep_research.browser_control._is_linux",
+                "deep_research.browser_control._is_linux",
                 return_value=False,
             ):
                 with patch("subprocess.run", return_value=mock_result):
@@ -338,10 +338,10 @@ class TestEnsureChromeAccessible:
         mock_result.returncode = 1
 
         with patch(
-            "perplexity_deep_research.browser_control._is_macos", return_value=True
+            "deep_research.browser_control._is_macos", return_value=True
         ):
             with patch(
-                "perplexity_deep_research.browser_control._is_linux",
+                "deep_research.browser_control._is_linux",
                 return_value=False,
             ):
                 with patch("subprocess.run", return_value=mock_result):
@@ -367,10 +367,10 @@ class TestEnsureChromeAccessible:
             return mock
 
         with patch(
-            "perplexity_deep_research.browser_control._is_macos", return_value=True
+            "deep_research.browser_control._is_macos", return_value=True
         ):
             with patch(
-                "perplexity_deep_research.browser_control._is_linux",
+                "deep_research.browser_control._is_linux",
                 return_value=False,
             ):
                 with patch("subprocess.run", side_effect=mock_run_side_effect):
@@ -389,10 +389,10 @@ class TestEnsureChromeAccessible:
         mock_result.stdout = "true\n"
 
         with patch(
-            "perplexity_deep_research.browser_control._is_macos", return_value=True
+            "deep_research.browser_control._is_macos", return_value=True
         ):
             with patch(
-                "perplexity_deep_research.browser_control._is_linux",
+                "deep_research.browser_control._is_linux",
                 return_value=False,
             ):
                 with patch("subprocess.run", return_value=mock_result):
@@ -410,10 +410,10 @@ class TestEnsureChromeAccessible:
         mock_result.stdout = "true\n"
 
         with patch(
-            "perplexity_deep_research.browser_control._is_macos", return_value=True
+            "deep_research.browser_control._is_macos", return_value=True
         ):
             with patch(
-                "perplexity_deep_research.browser_control._is_linux",
+                "deep_research.browser_control._is_linux",
                 return_value=False,
             ):
                 with patch("subprocess.run", return_value=mock_result):
@@ -447,7 +447,7 @@ class TestPromptKeychainPasswordMacOS:
         mock_result.stdout = "test_password\n"
 
         with patch(
-            "perplexity_deep_research.browser_control._is_macos", return_value=True
+            "deep_research.browser_control._is_macos", return_value=True
         ):
             with patch("subprocess.run", return_value=mock_result):
                 result = prompt_keychain_password()
@@ -460,7 +460,7 @@ class TestPromptKeychainPasswordMacOS:
         mock_result.stdout = ""
 
         with patch(
-            "perplexity_deep_research.browser_control._is_macos", return_value=True
+            "deep_research.browser_control._is_macos", return_value=True
         ):
             with patch("subprocess.run", return_value=mock_result):
                 result = prompt_keychain_password()
@@ -469,7 +469,7 @@ class TestPromptKeychainPasswordMacOS:
 
     def test_prompt_keychain_password_timeout(self) -> None:
         with patch(
-            "perplexity_deep_research.browser_control._is_macos", return_value=True
+            "deep_research.browser_control._is_macos", return_value=True
         ):
             with patch(
                 "subprocess.run",
@@ -481,7 +481,7 @@ class TestPromptKeychainPasswordMacOS:
 
     def test_prompt_keychain_password_subprocess_error(self) -> None:
         with patch(
-            "perplexity_deep_research.browser_control._is_macos", return_value=True
+            "deep_research.browser_control._is_macos", return_value=True
         ):
             with patch(
                 "subprocess.run",
@@ -495,7 +495,7 @@ class TestPromptKeychainPasswordMacOS:
 class TestPromptKeychainPasswordLinux:
     def test_prompt_password_linux_success(self) -> None:
         with patch(
-            "perplexity_deep_research.browser_control._is_macos", return_value=False
+            "deep_research.browser_control._is_macos", return_value=False
         ):
             with patch("sys.stdin.isatty", return_value=True):
                 with patch("getpass.getpass", return_value="linux_password"):
@@ -505,7 +505,7 @@ class TestPromptKeychainPasswordLinux:
 
     def test_prompt_password_linux_non_interactive(self) -> None:
         with patch(
-            "perplexity_deep_research.browser_control._is_macos", return_value=False
+            "deep_research.browser_control._is_macos", return_value=False
         ):
             with patch("sys.stdin.isatty", return_value=False):
                 result = prompt_keychain_password()
@@ -514,7 +514,7 @@ class TestPromptKeychainPasswordLinux:
 
     def test_prompt_password_linux_cancelled(self) -> None:
         with patch(
-            "perplexity_deep_research.browser_control._is_macos", return_value=False
+            "deep_research.browser_control._is_macos", return_value=False
         ):
             with patch("sys.stdin.isatty", return_value=True):
                 with patch("getpass.getpass", side_effect=KeyboardInterrupt()):
@@ -529,14 +529,14 @@ class TestCheckFullDiskAccess:
         cookie_file.write_bytes(b"test")
 
         with patch(
-            "perplexity_deep_research.browser_control._is_macos", return_value=True
+            "deep_research.browser_control._is_macos", return_value=True
         ):
             with patch(
-                "perplexity_deep_research.browser_control._is_linux",
+                "deep_research.browser_control._is_linux",
                 return_value=False,
             ):
                 with patch(
-                    "perplexity_deep_research.browser_control.Path.home",
+                    "deep_research.browser_control.Path.home",
                     return_value=tmp_path,
                 ):
                     with patch("builtins.open", MagicMock()):
@@ -546,10 +546,10 @@ class TestCheckFullDiskAccess:
 
     def test_check_full_disk_access_permission_denied(self) -> None:
         with patch(
-            "perplexity_deep_research.browser_control._is_macos", return_value=True
+            "deep_research.browser_control._is_macos", return_value=True
         ):
             with patch(
-                "perplexity_deep_research.browser_control._is_linux",
+                "deep_research.browser_control._is_linux",
                 return_value=False,
             ):
                 with patch(
@@ -561,10 +561,10 @@ class TestCheckFullDiskAccess:
 
     def test_check_full_disk_access_file_not_found(self) -> None:
         with patch(
-            "perplexity_deep_research.browser_control._is_macos", return_value=True
+            "deep_research.browser_control._is_macos", return_value=True
         ):
             with patch(
-                "perplexity_deep_research.browser_control._is_linux",
+                "deep_research.browser_control._is_linux",
                 return_value=False,
             ):
                 with patch(
@@ -581,14 +581,14 @@ class TestCheckFullDiskAccess:
         cookie_file.write_bytes(b"test")
 
         with patch(
-            "perplexity_deep_research.browser_control._is_macos", return_value=False
+            "deep_research.browser_control._is_macos", return_value=False
         ):
             with patch(
-                "perplexity_deep_research.browser_control._is_linux",
+                "deep_research.browser_control._is_linux",
                 return_value=True,
             ):
                 with patch(
-                    "perplexity_deep_research.browser_control.Path.home",
+                    "deep_research.browser_control.Path.home",
                     return_value=tmp_path,
                 ):
                     result = check_full_disk_access()
@@ -597,14 +597,14 @@ class TestCheckFullDiskAccess:
 
     def test_check_full_disk_access_linux_no_chrome(self, tmp_path) -> None:
         with patch(
-            "perplexity_deep_research.browser_control._is_macos", return_value=False
+            "deep_research.browser_control._is_macos", return_value=False
         ):
             with patch(
-                "perplexity_deep_research.browser_control._is_linux",
+                "deep_research.browser_control._is_linux",
                 return_value=True,
             ):
                 with patch(
-                    "perplexity_deep_research.browser_control.Path.home",
+                    "deep_research.browser_control.Path.home",
                     return_value=tmp_path,
                 ):
                     result = check_full_disk_access()
@@ -620,10 +620,10 @@ class TestShowFullDiskAccessDialog:
         mock_result.stdout = "Open Settings"
 
         with patch(
-            "perplexity_deep_research.browser_control._is_macos", return_value=True
+            "deep_research.browser_control._is_macos", return_value=True
         ):
             with patch(
-                "perplexity_deep_research.browser_control._is_linux",
+                "deep_research.browser_control._is_linux",
                 return_value=False,
             ):
                 with patch("subprocess.run", return_value=mock_result) as mock_run:
@@ -637,10 +637,10 @@ class TestShowFullDiskAccessDialog:
         mock_result.stdout = ""
 
         with patch(
-            "perplexity_deep_research.browser_control._is_macos", return_value=True
+            "deep_research.browser_control._is_macos", return_value=True
         ):
             with patch(
-                "perplexity_deep_research.browser_control._is_linux",
+                "deep_research.browser_control._is_linux",
                 return_value=False,
             ):
                 with patch("subprocess.run", return_value=mock_result) as mock_run:
@@ -650,10 +650,10 @@ class TestShowFullDiskAccessDialog:
 
     def test_show_full_disk_access_dialog_timeout(self) -> None:
         with patch(
-            "perplexity_deep_research.browser_control._is_macos", return_value=True
+            "deep_research.browser_control._is_macos", return_value=True
         ):
             with patch(
-                "perplexity_deep_research.browser_control._is_linux",
+                "deep_research.browser_control._is_linux",
                 return_value=False,
             ):
                 with patch(
@@ -664,10 +664,10 @@ class TestShowFullDiskAccessDialog:
 
     def test_show_full_disk_access_dialog_linux(self) -> None:
         with patch(
-            "perplexity_deep_research.browser_control._is_macos", return_value=False
+            "deep_research.browser_control._is_macos", return_value=False
         ):
             with patch(
-                "perplexity_deep_research.browser_control._is_linux",
+                "deep_research.browser_control._is_linux",
                 return_value=True,
             ):
                 with patch("builtins.print") as mock_print:
@@ -683,14 +683,14 @@ class TestIsChromeRunningWindows:
         mock_result.stdout = "chrome.exe                    1234 Console   1   100,000 K\n"
 
         with patch(
-            "perplexity_deep_research.browser_control._is_macos", return_value=False
+            "deep_research.browser_control._is_macos", return_value=False
         ):
             with patch(
-                "perplexity_deep_research.browser_control._is_windows",
+                "deep_research.browser_control._is_windows",
                 return_value=True,
             ):
                 with patch(
-                    "perplexity_deep_research.browser_control._is_linux",
+                    "deep_research.browser_control._is_linux",
                     return_value=False,
                 ):
                     with patch("subprocess.run", return_value=mock_result) as mock_run:
@@ -707,14 +707,14 @@ class TestIsChromeRunningWindows:
         mock_result.stdout = "INFO: No tasks are running which match the specified criteria.\n"
 
         with patch(
-            "perplexity_deep_research.browser_control._is_macos", return_value=False
+            "deep_research.browser_control._is_macos", return_value=False
         ):
             with patch(
-                "perplexity_deep_research.browser_control._is_windows",
+                "deep_research.browser_control._is_windows",
                 return_value=True,
             ):
                 with patch(
-                    "perplexity_deep_research.browser_control._is_linux",
+                    "deep_research.browser_control._is_linux",
                     return_value=False,
                 ):
                     with patch("subprocess.run", return_value=mock_result):
@@ -724,14 +724,14 @@ class TestIsChromeRunningWindows:
 
     def test_is_chrome_running_windows_timeout(self) -> None:
         with patch(
-            "perplexity_deep_research.browser_control._is_macos", return_value=False
+            "deep_research.browser_control._is_macos", return_value=False
         ):
             with patch(
-                "perplexity_deep_research.browser_control._is_windows",
+                "deep_research.browser_control._is_windows",
                 return_value=True,
             ):
                 with patch(
-                    "perplexity_deep_research.browser_control._is_linux",
+                    "deep_research.browser_control._is_linux",
                     return_value=False,
                 ):
                     with patch(
@@ -752,14 +752,14 @@ class TestQuitChromeWindows:
         mock_check_gone.stdout = "INFO: No tasks are running\n"
 
         with patch(
-            "perplexity_deep_research.browser_control._is_macos", return_value=False
+            "deep_research.browser_control._is_macos", return_value=False
         ):
             with patch(
-                "perplexity_deep_research.browser_control._is_windows",
+                "deep_research.browser_control._is_windows",
                 return_value=True,
             ):
                 with patch(
-                    "perplexity_deep_research.browser_control._is_linux",
+                    "deep_research.browser_control._is_linux",
                     return_value=False,
                 ):
                     with patch(
@@ -778,14 +778,14 @@ class TestQuitChromeWindows:
 
     def test_quit_chrome_windows_subprocess_error(self) -> None:
         with patch(
-            "perplexity_deep_research.browser_control._is_macos", return_value=False
+            "deep_research.browser_control._is_macos", return_value=False
         ):
             with patch(
-                "perplexity_deep_research.browser_control._is_windows",
+                "deep_research.browser_control._is_windows",
                 return_value=True,
             ):
                 with patch(
-                    "perplexity_deep_research.browser_control._is_linux",
+                    "deep_research.browser_control._is_linux",
                     return_value=False,
                 ):
                     with patch(
@@ -806,18 +806,18 @@ class TestRelaunchChromeWindows:
         mock_running.stdout = "chrome.exe  1234 Console  1  100 K\n"
 
         with patch(
-            "perplexity_deep_research.browser_control._is_macos", return_value=False
+            "deep_research.browser_control._is_macos", return_value=False
         ):
             with patch(
-                "perplexity_deep_research.browser_control._is_windows",
+                "deep_research.browser_control._is_windows",
                 return_value=True,
             ):
                 with patch(
-                    "perplexity_deep_research.browser_control._is_linux",
+                    "deep_research.browser_control._is_linux",
                     return_value=False,
                 ):
                     with patch(
-                        "perplexity_deep_research.browser_control._find_chrome_exe_windows",
+                        "deep_research.browser_control._find_chrome_exe_windows",
                         return_value=str(chrome_exe),
                     ):
                         with patch("subprocess.Popen") as mock_popen:
@@ -833,18 +833,18 @@ class TestRelaunchChromeWindows:
 
     def test_relaunch_chrome_windows_no_exe_found(self) -> None:
         with patch(
-            "perplexity_deep_research.browser_control._is_macos", return_value=False
+            "deep_research.browser_control._is_macos", return_value=False
         ):
             with patch(
-                "perplexity_deep_research.browser_control._is_windows",
+                "deep_research.browser_control._is_windows",
                 return_value=True,
             ):
                 with patch(
-                    "perplexity_deep_research.browser_control._is_linux",
+                    "deep_research.browser_control._is_linux",
                     return_value=False,
                 ):
                     with patch(
-                        "perplexity_deep_research.browser_control._find_chrome_exe_windows",
+                        "deep_research.browser_control._find_chrome_exe_windows",
                         return_value=None,
                     ):
                         result = relaunch_chrome()
@@ -856,18 +856,18 @@ class TestRelaunchChromeWindows:
         chrome_exe.write_bytes(b"")
 
         with patch(
-            "perplexity_deep_research.browser_control._is_macos", return_value=False
+            "deep_research.browser_control._is_macos", return_value=False
         ):
             with patch(
-                "perplexity_deep_research.browser_control._is_windows",
+                "deep_research.browser_control._is_windows",
                 return_value=True,
             ):
                 with patch(
-                    "perplexity_deep_research.browser_control._is_linux",
+                    "deep_research.browser_control._is_linux",
                     return_value=False,
                 ):
                     with patch(
-                        "perplexity_deep_research.browser_control._find_chrome_exe_windows",
+                        "deep_research.browser_control._find_chrome_exe_windows",
                         return_value=str(chrome_exe),
                     ):
                         with patch(
@@ -881,7 +881,7 @@ class TestRelaunchChromeWindows:
 
 class TestFindChromeExeWindows:
     def test_finds_program_files_install(self, tmp_path, monkeypatch) -> None:
-        from perplexity_deep_research.browser_control import _find_chrome_exe_windows
+        from deep_research.browser_control import _find_chrome_exe_windows
 
         prog_files = tmp_path / "Program Files"
         chrome_exe = prog_files / "Google" / "Chrome" / "Application" / "chrome.exe"
@@ -895,7 +895,7 @@ class TestFindChromeExeWindows:
         assert _find_chrome_exe_windows() == str(chrome_exe)
 
     def test_returns_none_when_not_installed(self, tmp_path, monkeypatch) -> None:
-        from perplexity_deep_research.browser_control import _find_chrome_exe_windows
+        from deep_research.browser_control import _find_chrome_exe_windows
 
         monkeypatch.setenv("PROGRAMFILES", str(tmp_path / "pf"))
         monkeypatch.setenv("PROGRAMFILES(X86)", str(tmp_path / "pfx86"))
@@ -908,10 +908,10 @@ class TestPromptKeychainPasswordWindows:
     def test_returns_none_on_windows(self) -> None:
         # On Windows DPAPI handles decryption — no password prompt needed
         with patch(
-            "perplexity_deep_research.browser_control._is_windows", return_value=True
+            "deep_research.browser_control._is_windows", return_value=True
         ):
             with patch(
-                "perplexity_deep_research.browser_control._is_macos", return_value=False
+                "deep_research.browser_control._is_macos", return_value=False
             ):
                 result = prompt_keychain_password()
 
@@ -922,13 +922,13 @@ class TestCheckFullDiskAccessWindows:
     def test_returns_true_on_windows(self) -> None:
         # Windows has no equivalent to macOS Full Disk Access
         with patch(
-            "perplexity_deep_research.browser_control._is_windows", return_value=True
+            "deep_research.browser_control._is_windows", return_value=True
         ):
             with patch(
-                "perplexity_deep_research.browser_control._is_macos", return_value=False
+                "deep_research.browser_control._is_macos", return_value=False
             ):
                 with patch(
-                    "perplexity_deep_research.browser_control._is_linux",
+                    "deep_research.browser_control._is_linux",
                     return_value=False,
                 ):
                     assert check_full_disk_access() is True
@@ -938,13 +938,13 @@ class TestShowFullDiskAccessDialogWindows:
     def test_noop_on_windows(self) -> None:
         # Should be a no-op on Windows — no exception, no prints
         with patch(
-            "perplexity_deep_research.browser_control._is_windows", return_value=True
+            "deep_research.browser_control._is_windows", return_value=True
         ):
             with patch(
-                "perplexity_deep_research.browser_control._is_macos", return_value=False
+                "deep_research.browser_control._is_macos", return_value=False
             ):
                 with patch(
-                    "perplexity_deep_research.browser_control._is_linux",
+                    "deep_research.browser_control._is_linux",
                     return_value=False,
                 ):
                     with patch("subprocess.run") as mock_run:

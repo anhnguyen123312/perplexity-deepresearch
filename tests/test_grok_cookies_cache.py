@@ -6,8 +6,8 @@ from unittest.mock import patch
 
 import pytest
 
-from perplexity_deep_research import profile_config
-from perplexity_deep_research.grok import cookies as grok_cookies
+from deep_research import profile_config
+from deep_research.grok import cookies as grok_cookies
 
 
 @pytest.fixture(autouse=True)
@@ -27,10 +27,10 @@ class TestGrokCookiesCacheHit:
 
         with (
             patch(
-                "perplexity_deep_research.grok.cookies.extract_grok_cookies_all_profiles"
+                "deep_research.grok.cookies.extract_grok_cookies_all_profiles"
             ) as mock_all,
             patch(
-                "perplexity_deep_research.grok.cookies.get_grok_cookies"
+                "deep_research.grok.cookies.get_grok_cookies"
             ) as mock_get,
         ):
             result = grok_cookies.get_grok_cookies_cached()
@@ -46,11 +46,11 @@ class TestGrokCookiesCacheMiss:
         fresh_p1 = {"sso": "p1-tok"}
         with (
             patch(
-                "perplexity_deep_research.grok.cookies.extract_grok_cookies_all_profiles",
+                "deep_research.grok.cookies.extract_grok_cookies_all_profiles",
                 return_value=[("Profile 1", fresh_p1), ("Default", fresh_default)],
             ),
             patch(
-                "perplexity_deep_research.grok.cookies._preferred_grok_profile_order",
+                "deep_research.grok.cookies._preferred_grok_profile_order",
                 return_value=["Default", "Profile 1"],
             ),
         ):
@@ -65,11 +65,11 @@ class TestGrokCookiesCacheMiss:
         fresh = {"sso": "diagnostic-tok"}
         with (
             patch(
-                "perplexity_deep_research.grok.cookies.extract_grok_cookies_all_profiles",
+                "deep_research.grok.cookies.extract_grok_cookies_all_profiles",
                 return_value=[],
             ),
             patch(
-                "perplexity_deep_research.grok.cookies.get_grok_cookies",
+                "deep_research.grok.cookies.get_grok_cookies",
                 return_value=fresh,
             ),
         ):
@@ -85,7 +85,7 @@ class TestGrokCookiesCacheMiss:
 
         fresh = {"sso": "fresh"}
         with patch(
-            "perplexity_deep_research.grok.cookies.extract_grok_cookies_all_profiles",
+            "deep_research.grok.cookies.extract_grok_cookies_all_profiles",
             return_value=[("Default", fresh)],
         ):
             result = grok_cookies.get_grok_cookies_cached()

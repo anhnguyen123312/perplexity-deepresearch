@@ -7,8 +7,8 @@ each event message to understand the response shape.
 import json
 from pathlib import Path
 
-from perplexity_deep_research.client import PerplexityClient
-from perplexity_deep_research.config import ENDPOINT_SSE_ASK, SSE_REQUEST_HEADERS
+from deep_research.perplexity.client import PerplexityClient
+from deep_research.config import ENDPOINT_SSE_ASK, SSE_REQUEST_HEADERS
 
 
 OUT = Path("/Volumes/Data/Git/perlexity/docs/perplexity-mcp-revert/sse_raw.txt")

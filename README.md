@@ -23,7 +23,7 @@ Add to your Claude Desktop config:
 {
   "mcpServers": {
     "perplexity": {
-      "command": "perplexity-deep-research"
+      "command": "deep-research"
     }
   }
 }
@@ -149,19 +149,19 @@ Defaults: perplexity 24h, grok 12h. When an entry expires, the next call
 re-harvests Chrome and persists every signed-in profile. Legacy `cookies.json`
 is auto-migrated on first load (the old file is preserved for rollback).
 
-**CLI** (installed as `perplexity-deep-research-config`)
+**CLI** (installed as `deep-research-config`)
 
 ```bash
-perplexity-deep-research-config show                       # masked
-perplexity-deep-research-config show --reveal              # full cookie values
-perplexity-deep-research-config export ~/pdr-snapshot.json # for another machine
-perplexity-deep-research-config import ~/pdr-snapshot.json # merge (default)
-perplexity-deep-research-config import ~/pdr-snapshot.json --replace
-perplexity-deep-research-config set-expire perplexity 43200
-perplexity-deep-research-config rescan grok                # force re-harvest
+deep-research-config show                       # masked
+deep-research-config show --reveal              # full cookie values
+deep-research-config export ~/pdr-snapshot.json # for another machine
+deep-research-config import ~/pdr-snapshot.json # merge (default)
+deep-research-config import ~/pdr-snapshot.json --replace
+deep-research-config set-expire perplexity 43200
+deep-research-config rescan grok                # force re-harvest
 ```
 
-Also callable as `python -m perplexity_deep_research.cli …`.
+Also callable as `python -m deep_research.cli …`.
 
 ## 🔧 Troubleshooting
 
@@ -208,22 +208,25 @@ Also callable as `python -m perplexity_deep_research.cli …`.
 
 ### Project Structure
 ```
-perplexity-deep-research/
-├── perplexity_deep_research/
-│   ├── browser_control.py  # macOS Chrome control
-│   ├── client.py            # Perplexity API client
-│   ├── cookies.py           # Cookie extraction
-│   └── server.py            # MCP server implementation
-└── tests/                  # Comprehensive test suite
+deep-research/
+├── deep_research/
+│   ├── browser_control.py    # Chrome control
+│   ├── cookies.py            # Cookie extraction (shared)
+│   ├── onboard.py            # Interactive onboarding CLI
+│   ├── server.py             # MCP server (all 3 providers)
+│   ├── perplexity/client.py  # Perplexity API client
+│   ├── grok/                 # Grok client + statsig
+│   └── gemini/               # Gemini Deep Research client
+└── tests/                    # Comprehensive test suite
 ```
 
 ### Manual Testing
 ```bash
-# Test cookie extraction
-perplexity-deep-research --test-cookies
+# Onboard: pick Chrome profile + Google account, harvest cookies
+deep-research-onboard
 
 # Run MCP server manually
-perplexity-deep-research
+deep-research
 ```
 
 ### Environment Variables
