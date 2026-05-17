@@ -57,3 +57,4 @@ src/
 # (the root CLAUDE.md remains tracked)
 perplexity_deep_research/CLAUDE.md
 tests/CLAUDE.md
+.gitnexus
