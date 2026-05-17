@@ -305,3 +305,135 @@ class TestPollResearch:
         assert out["done"] is True
         # Backoff must enforce >= 15s after the reject_code
         assert any(s >= 15.0 for s in sleeps), f"sleeps={sleeps}"
+
+
+# ---------------------------------------------------------------------- #
+# full_deep_research (E2E one-shot)
+# ---------------------------------------------------------------------- #
+
+
+class TestFullDeepResearch:
+    def test_happy_path_returns_final_report(self, client, monkeypatch):
+        plan = {
+            "ok": True, "conversation_id": "c_plan", "response_id": "r_plan",
+            "candidate_ids": ["rc_choice"], "title": "Topic",
+            "plan_title": "My Plan", "plan_steps": [{"id": "s1"}],
+            "text": "Here's the plan", "chrome_profile": "Default",
+        }
+        confirm = {
+            "ok": True, "conversation_id": "c_run", "response_id": "r_run",
+            "candidate_ids": ["rc_ack"], "title": "Topic",
+            "text": "Great, while I'm researching…", "chrome_profile": "Default",
+        }
+        submit_mock = MagicMock(side_effect=[plan, confirm])
+        poll_mock = MagicMock(return_value={
+            "ok": True, "done": True, "conversation_id": "c_run",
+            "rcid": "rc_x", "title": "Final Title", "text": "# Final Report",
+            "elapsed_secs": 12.3, "polls": 4, "reason": None,
+            "timed_out": False,
+        })
+        monkeypatch.setattr(client, "submit", submit_mock)
+        monkeypatch.setattr(client, "poll_research", poll_mock)
+
+        out = client.full_deep_research(
+            query="What is X?", authuser=0, poll_interval=0.01, timeout=5.0,
+        )
+
+        assert out["ok"] is True
+        assert out["done"] is True
+        assert out["text"] == "# Final Report"
+        assert out["conversation_id"] == "c_run"
+        assert out["choice_id"] == "rc_choice"
+        assert out["plan_title"] == "My Plan"
+        # Two submits: plan + confirm with "Start research"
+        assert submit_mock.call_count == 2
+        assert submit_mock.call_args_list[0][0][0] == "What is X?"
+        assert submit_mock.call_args_list[1][0][0] == "Start research"
+        confirm_kwargs = submit_mock.call_args_list[1][1]
+        assert confirm_kwargs["conversation_id"] == "c_plan"
+        assert confirm_kwargs["response_id"] == "r_plan"
+        assert confirm_kwargs["choice_id"] == "rc_choice"
+        # Poll must follow the CONFIRM-returned conversation_id, not the plan's
+        assert poll_mock.call_args[1]["conversation_id"] == "c_run"
+        assert "plan" in out["stage_secs"]
+        assert "confirm" in out["stage_secs"]
+        assert "poll" in out["stage_secs"]
+
+    def test_plan_stage_failure_short_circuits(self, client, monkeypatch):
+        plan_fail = {"ok": False, "error": "HTTP 500: boom"}
+        submit_mock = MagicMock(return_value=plan_fail)
+        poll_mock = MagicMock()
+        monkeypatch.setattr(client, "submit", submit_mock)
+        monkeypatch.setattr(client, "poll_research", poll_mock)
+
+        out = client.full_deep_research(query="Q", authuser=0)
+
+        assert out["ok"] is False
+        assert out["stage"] == "plan"
+        assert "boom" in out["error"]
+        assert submit_mock.call_count == 1
+        poll_mock.assert_not_called()
+
+    def test_plan_without_candidate_ids_short_circuits(self, client, monkeypatch):
+        plan = {
+            "ok": True, "conversation_id": "c_plan", "response_id": "r_plan",
+            "candidate_ids": [],   # apology chip with no candidates
+            "text": "I'm sorry, it looks like something went wrong",
+        }
+        submit_mock = MagicMock(return_value=plan)
+        poll_mock = MagicMock()
+        monkeypatch.setattr(client, "submit", submit_mock)
+        monkeypatch.setattr(client, "poll_research", poll_mock)
+
+        out = client.full_deep_research(query="Q", authuser=0)
+
+        assert out["ok"] is False
+        assert out["stage"] == "plan"
+        assert "candidate_ids" in out["error"]
+        assert submit_mock.call_count == 1
+        poll_mock.assert_not_called()
+
+    def test_confirm_stage_failure_short_circuits(self, client, monkeypatch):
+        plan = {
+            "ok": True, "conversation_id": "c_plan", "response_id": "r_plan",
+            "candidate_ids": ["rc_choice"], "plan_title": "P",
+            "plan_steps": [], "text": "plan",
+        }
+        confirm_fail = {"ok": False, "error": "HTTP 403"}
+        submit_mock = MagicMock(side_effect=[plan, confirm_fail])
+        poll_mock = MagicMock()
+        monkeypatch.setattr(client, "submit", submit_mock)
+        monkeypatch.setattr(client, "poll_research", poll_mock)
+
+        out = client.full_deep_research(query="Q", authuser=0)
+
+        assert out["ok"] is False
+        assert out["stage"] == "confirm"
+        assert "403" in out["error"]
+        assert out["choice_id"] == "rc_choice"
+        assert submit_mock.call_count == 2
+        poll_mock.assert_not_called()
+
+    def test_poll_timeout_returned_as_ok_but_not_done(self, client, monkeypatch):
+        plan = {
+            "ok": True, "conversation_id": "c_plan", "response_id": "r_plan",
+            "candidate_ids": ["rc_choice"], "plan_title": "P",
+            "plan_steps": [], "text": "plan",
+        }
+        confirm = {"ok": True, "conversation_id": "c_run"}
+        submit_mock = MagicMock(side_effect=[plan, confirm])
+        poll_mock = MagicMock(return_value={
+            "ok": True, "done": False, "conversation_id": "c_run",
+            "rcid": None, "title": None, "text": None, "elapsed_secs": 1800.0,
+            "polls": 60, "reason": None, "timed_out": True,
+        })
+        monkeypatch.setattr(client, "submit", submit_mock)
+        monkeypatch.setattr(client, "poll_research", poll_mock)
+
+        out = client.full_deep_research(query="Q", authuser=0,
+                                         poll_interval=0.01, timeout=0.05)
+
+        assert out["ok"] is True
+        assert out["done"] is False
+        assert out["timed_out"] is True
+        assert out["text"] is None

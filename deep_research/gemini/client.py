@@ -11,10 +11,11 @@ DR is a 3-stage flow (mirrors HanaokaYuzu/Gemini-API):
   3. Status polling         — POST batchexecute rpcid=kwDCne every ~10s until
                               the research finishes (returns final report)
 
-This module currently implements stages 1+2 (the request that triggers the
-long-running research). Stage 3 polling is deliberately omitted from the first
-slice — once the request is fired, the report becomes visible inside the
-Gemini UI and can be fetched separately.
+All three stages are implemented. ``full_deep_research`` chains them so
+callers get the final markdown report from a single call without juggling
+``conversation_id`` / ``response_id`` / ``choice_id`` between requests.
+``submit`` / ``start_research`` / ``poll_research`` remain available for
+advanced callers that need to inspect the plan before triggering the run.
 """
 
 from __future__ import annotations
@@ -959,6 +960,162 @@ class GeminiClient:
         )
         result["poll"] = poll
         return result
+
+    def full_deep_research(
+        self,
+        query: str,
+        authuser: int,
+        chrome_profile: str | None = None,
+        language: str = DEFAULT_HL,
+        model: str | None = None,
+        confirm_prompt: str = "Start research",
+        poll_interval: float = POLL_INTERVAL_SECS,
+        timeout: float = POLL_TIMEOUT_SECS,
+    ) -> dict[str, Any]:
+        """End-to-end Deep Research in one call.
+
+        Chains the 3 DR stages internally so callers get the final report
+        without managing intermediate IDs:
+
+        1. Submit the DR plan request (``deep_research=True``).
+        2. Auto-pick ``candidate_ids[0]`` as the choice and re-submit
+           ``"Start research"`` to trigger the long run.
+        3. Poll ``READ_CHAT`` every ``poll_interval`` seconds (default 30s)
+           up to ``timeout`` (default 30 min) until the immersive report
+           lands.
+
+        Returns the poll result enriched with plan metadata::
+
+            {
+              "ok": True,
+              "done": bool,
+              "conversation_id": str,
+              "response_id": str,
+              "choice_id": str,
+              "rcid": str | None,
+              "title": str | None,
+              "text": str | None,          # final markdown report
+              "plan_title": str | None,
+              "plan_steps": list,
+              "elapsed_secs": float,
+              "stage_secs": {"plan": float, "confirm": float, "poll": float},
+              "polls": int,
+              "reason": str | None,
+              "timed_out": bool,
+            }
+
+        On any stage failure returns ``{"error": str, ...partial...}``.
+        """
+        t_start = time.time()
+
+        # Stage 1 — plan
+        plan = self.submit(
+            query,
+            authuser=authuser,
+            chrome_profile=chrome_profile,
+            language=language,
+            deep_research=True,
+            model=model,
+        )
+        plan_secs = round(time.time() - t_start, 2)
+        if not plan.get("ok"):
+            return {
+                "ok": False,
+                "error": plan.get("error") or "plan stage failed",
+                "stage": "plan",
+                "stage_secs": {"plan": plan_secs},
+                **{k: plan.get(k) for k in ("conversation_id", "response_id",
+                                             "candidate_ids", "text",
+                                             "plan_title", "plan_steps")
+                   if plan.get(k) is not None},
+            }
+        conv_id = plan.get("conversation_id")
+        resp_id = plan.get("response_id")
+        candidates = plan.get("candidate_ids") or []
+        if not (conv_id and resp_id and candidates):
+            return {
+                "ok": False,
+                "error": (
+                    "plan returned no candidate_ids/conversation_id — cannot "
+                    "auto-confirm DR run"
+                ),
+                "stage": "plan",
+                "stage_secs": {"plan": plan_secs},
+                "conversation_id": conv_id,
+                "response_id": resp_id,
+                "candidate_ids": candidates,
+                "text": plan.get("text"),
+                "plan_title": plan.get("plan_title"),
+                "plan_steps": plan.get("plan_steps"),
+            }
+        choice_id = candidates[0]
+
+        # Stage 2 — confirm ("Start research")
+        t_confirm = time.time()
+        confirm = self.submit(
+            confirm_prompt,
+            authuser=authuser,
+            chrome_profile=chrome_profile,
+            language=language,
+            deep_research=True,
+            conversation_id=conv_id,
+            response_id=resp_id,
+            choice_id=choice_id,
+            model=model,
+        )
+        confirm_secs = round(time.time() - t_confirm, 2)
+        if not confirm.get("ok"):
+            return {
+                "ok": False,
+                "error": confirm.get("error") or "confirm stage failed",
+                "stage": "confirm",
+                "stage_secs": {"plan": plan_secs, "confirm": confirm_secs},
+                "conversation_id": conv_id,
+                "response_id": resp_id,
+                "choice_id": choice_id,
+                "plan_title": plan.get("plan_title"),
+                "plan_steps": plan.get("plan_steps"),
+            }
+        # The confirm response usually carries a NEW conversation_id; the poll
+        # must follow the latest one to see progress on the actual run.
+        run_conv_id = confirm.get("conversation_id") or conv_id
+
+        # Stage 3 — poll until done / timeout
+        t_poll = time.time()
+        poll = self.poll_research(
+            conversation_id=run_conv_id,
+            authuser=authuser,
+            chrome_profile=chrome_profile,
+            language=language,
+            poll_interval=poll_interval,
+            timeout=timeout,
+        )
+        poll_secs = round(time.time() - t_poll, 2)
+
+        return {
+            "ok": True,
+            "done": poll.get("done", False),
+            "conversation_id": run_conv_id,
+            "response_id": resp_id,
+            "choice_id": choice_id,
+            "rcid": poll.get("rcid"),
+            "title": poll.get("title") or plan.get("title"),
+            "text": poll.get("text"),
+            "plan_title": plan.get("plan_title"),
+            "plan_steps": plan.get("plan_steps"),
+            "elapsed_secs": round(time.time() - t_start, 2),
+            "stage_secs": {
+                "plan": plan_secs,
+                "confirm": confirm_secs,
+                "poll": poll_secs,
+            },
+            "polls": poll.get("polls", 0),
+            "reason": poll.get("reason"),
+            "timed_out": poll.get("timed_out", False),
+            "chrome_profile": plan.get("chrome_profile"),
+            "authuser": authuser,
+            "model": model,
+        }
 
     def refresh_csrf(self, authuser: int, chrome_profile: str | None = None) -> dict[str, Any]:
         """Force-refresh the cached SNlM0e + cfb2h for one Google account."""

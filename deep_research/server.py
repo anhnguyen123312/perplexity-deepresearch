@@ -303,172 +303,68 @@ def grok_modes() -> dict:
     }
 
 
-def _resolve_gemini_args(
-    authuser: int | None,
-    chrome_profile: str | None,
-    language: str | None,
-    model: str | None,
-) -> dict:
-    """Merge explicit MCP-tool args with saved defaults.
+def _get_gemini_config() -> dict:
+    """Load Gemini settings from the unified profile_config store.
 
-    Resolution order per field: explicit arg → saved setting → built-in default.
-    Returns a flat dict with ``authuser``, ``chrome_profile``, ``language``,
-    ``model`` keys ready to splat into the client call.
+    Single source of truth: configure via ``deep-research-onboard`` CLI.
+    Returns ``{authuser, chrome_profile, language, model}`` with built-in
+    defaults filled in for missing fields.
     """
     saved = profile_config.get_provider_settings(profile_config.PROVIDER_GEMINI)
     return {
-        "authuser": authuser if authuser is not None else saved.get("authuser", 0),
-        "chrome_profile": chrome_profile or saved.get("chrome_profile"),
-        "language": language or saved.get("language", "en"),
-        "model": model or saved.get("model"),
+        "authuser": saved.get("authuser", 0),
+        "chrome_profile": saved.get("chrome_profile"),
+        "language": saved.get("language", "en"),
+        "model": saved.get("model"),
     }
-
-
-def _persist_gemini_args(
-    result: dict, *, authuser, chrome_profile, language, model
-) -> None:
-    """Save the args from a successful call so the next call can omit them."""
-    if not result.get("ok"):
-        return
-    profile_config.set_provider_settings(
-        profile_config.PROVIDER_GEMINI,
-        {
-            "authuser": authuser,
-            "chrome_profile": chrome_profile,
-            "language": language,
-            "model": model,
-        },
-    )
 
 
 @mcp.tool()
 def gemini_deep_research(
     query: str,
-    authuser: int | None = None,
-    chrome_profile: str | None = None,
-    language: str | None = None,
-    model: str | None = None,
+    poll_interval: float = 30.0,
+    timeout: float = 1800.0,
 ) -> dict:
-    """Submit a Deep Research request to gemini.google.com (Google One AI Premium).
+    """Run a full Deep Research on gemini.google.com and return the report.
 
-    Stage-1 of Gemini's DR flow: returns the **research plan** Gemini drafts
-    before it commits to the long-running research run (5-15 min). Call
-    ``gemini_start_research`` afterwards with the returned ``conversation_id``
-    to trigger the actual investigation.
+    One-shot end-to-end: this tool internally drives Gemini's 3-stage DR
+    flow (plan → confirm "Start research" → poll ``READ_CHAT``) and blocks
+    until the final markdown report lands (typically 5-15 min) or ``timeout``
+    elapses (default 30 min).
 
-    All optional args fall back to values saved via ``gemini_set_defaults``;
-    after a successful call the args used are persisted as the new defaults.
+    Account / profile / language / model are **always** read from the unified
+    config (``profile_config``). Run ``deep-research-onboard`` to configure
+    them; this tool intentionally exposes no override args so there is one
+    source of truth.
 
     Args:
         query: The research question (give detailed context for best plans).
-        authuser: Google account index inside the Chrome profile (``/u/N/``).
-            ``None`` → use saved default or ``0``.
-        chrome_profile: Chrome OS profile name. ``None`` → use saved default
-            or auto-pick first signed-in profile.
-        language: Locale code (``en``, ``vi``, …). ``None`` → saved default
-            or ``en``.
-        model: Optional model override. ``"pro"`` selects Gemini 3.1 Pro
-            (verified live 2026-05-15). ``None`` → saved default (default
-            account model = 2.5 Flash).
+        poll_interval: Seconds between poll attempts during stage 3 (default
+            30s — matches the Gemini web UI cadence).
+        timeout: Hard cap on the whole run in seconds (default 1800 = 30 min).
 
     Returns:
-        ``{"ok": True, "conversation_id", "response_id", "title",
-        "plan_title", "plan_steps", "text", ...}`` on success;
-        ``{"error": str}`` on failure.
+        ``{"ok": True, "done": bool, "text": <markdown report>, "title",
+        "conversation_id", "plan_title", "plan_steps", "elapsed_secs",
+        "stage_secs", "polls", "timed_out", ...}`` on success;
+        ``{"ok": False, "error": str, "stage": "plan"|"confirm", ...}`` if a
+        stage fails; ``{"error": str}`` on transport-level failure.
     """
-    args = _resolve_gemini_args(authuser, chrome_profile, language, model)
+    cfg = _get_gemini_config()
     try:
-        result = get_gemini_client().deep_research(query=query, **args)
-        _persist_gemini_args(result, **args)
-        return result
-    except Exception as e:
-        return {"error": f"{type(e).__name__}: {e}"}
-
-
-@mcp.tool()
-def gemini_start_research(
-    conversation_id: str,
-    response_id: str,
-    choice_id: str,
-    authuser: int | None = None,
-    chrome_profile: str | None = None,
-    confirm_prompt: str = "Start research",
-    language: str | None = None,
-    model: str | None = None,
-    wait: bool = False,
-    poll_interval: float = 30.0,
-    timeout: float = 1800.0,
-) -> dict:
-    """Stage-2 of Gemini Deep Research — confirm a plan returned by
-    ``gemini_deep_research`` and trigger the long run (5-15 min).
-
-    Pass the ``conversation_id``, ``response_id``, and one of the
-    ``candidate_ids`` (the ``choice_id``) from the plan response so the
-    confirmation lands inside the same Gemini conversation.
-
-    By default this returns as soon as the confirmation request is
-    acknowledged (~30 s). Pass ``wait=True`` to additionally poll
-    ``batchexecute(READ_CHAT)`` every ``poll_interval`` seconds (up to
-    ``timeout`` seconds) and return the finished report under
-    ``poll.text``.
-    """
-    args = _resolve_gemini_args(authuser, chrome_profile, language, model)
-    try:
-        result = get_gemini_client().start_research(
-            conversation_id=conversation_id,
-            response_id=response_id,
-            choice_id=choice_id,
-            confirm_prompt=confirm_prompt,
-            wait=wait,
+        return get_gemini_client().full_deep_research(
+            query=query,
             poll_interval=poll_interval,
             timeout=timeout,
-            **args,
-        )
-        _persist_gemini_args(result, **args)
-        return result
-    except Exception as e:
-        return {"error": f"{type(e).__name__}: {e}"}
-
-
-@mcp.tool()
-def gemini_poll_research(
-    conversation_id: str,
-    authuser: int | None = None,
-    chrome_profile: str | None = None,
-    language: str | None = None,
-    poll_interval: float = 30.0,
-    timeout: float = 1800.0,
-) -> dict:
-    """Stage-3 of Gemini Deep Research — poll an already-running research
-    conversation until the report finalises.
-
-    After ``gemini_start_research`` triggers the long run (5-15 min), call
-    this with the returned ``conversation_id`` to block until the report is
-    ready and receive the final markdown in ``text``.
-
-    Returns ``{"ok", "done", "conversation_id", "rcid", "text",
-    "elapsed_secs", "polls", "reason", "timed_out"}``.
-    """
-    args = _resolve_gemini_args(authuser, chrome_profile, language, None)
-    try:
-        return get_gemini_client().poll_research(
-            conversation_id=conversation_id,
-            authuser=args["authuser"],
-            chrome_profile=args["chrome_profile"],
-            language=args["language"],
-            poll_interval=poll_interval,
-            timeout=timeout,
+            **cfg,
         )
     except Exception as e:
         return {"error": f"{type(e).__name__}: {e}"}
 
 
 @mcp.tool()
-def gemini_refresh_csrf(
-    authuser: int | None = None,
-    chrome_profile: str | None = None,
-) -> dict:
-    """Force-refresh the cached SNlM0e CSRF token for one Google account.
+def gemini_refresh_csrf() -> dict:
+    """Force-refresh the cached SNlM0e CSRF token for the configured account.
 
     ``SNlM0e`` is per-Google-account (different value at ``/u/0/`` vs
     ``/u/6/``) and is harvested from the Gemini homepage HTML. Cookies must
@@ -476,68 +372,19 @@ def gemini_refresh_csrf(
     from Chrome. Call after persistent 401/403 errors or after a long idle
     period.
 
+    Account / profile are always read from config (``profile_config``).
+
     Returns ``{"ok": True, "chrome_profile", "authuser", "snlm0e_prefix",
     "bl", "email"}`` or ``{"error": str}``.
     """
-    args = _resolve_gemini_args(authuser, chrome_profile, None, None)
+    cfg = _get_gemini_config()
     try:
         return get_gemini_client().refresh_csrf(
-            authuser=args["authuser"],
-            chrome_profile=args["chrome_profile"],
+            authuser=cfg["authuser"],
+            chrome_profile=cfg["chrome_profile"],
         )
     except Exception as e:
         return {"error": f"{type(e).__name__}: {e}"}
-
-
-@mcp.tool()
-def gemini_set_defaults(
-    authuser: int | None = None,
-    chrome_profile: str | None = None,
-    language: str | None = None,
-    model: str | None = None,
-) -> dict:
-    """Persist default args for the gemini tools.
-
-    Saved values are auto-applied to ``gemini_deep_research`` /
-    ``gemini_start_research`` / ``gemini_refresh_csrf`` whenever the matching
-    tool arg is omitted. Pass ``""`` (empty string) for a string field to
-    clear that single key, or call ``gemini_clear_defaults`` to wipe all.
-
-    Defaults are also auto-updated on every successful gemini DR call, so the
-    normal workflow is: run the tool once with explicit ``authuser``/
-    ``chrome_profile``/``model``, and subsequent calls inherit them.
-    """
-    updates: dict = {}
-    if authuser is not None:
-        updates["authuser"] = authuser
-    if chrome_profile is not None:
-        updates["chrome_profile"] = chrome_profile or None
-    if language is not None:
-        updates["language"] = language or None
-    if model is not None:
-        updates["model"] = model or None
-    saved = profile_config.set_provider_settings(
-        profile_config.PROVIDER_GEMINI, updates
-    )
-    return {"ok": True, "settings": saved}
-
-
-@mcp.tool()
-def gemini_get_defaults() -> dict:
-    """Return the saved default args for the gemini tools (may be empty)."""
-    return {
-        "ok": True,
-        "settings": profile_config.get_provider_settings(
-            profile_config.PROVIDER_GEMINI
-        ),
-    }
-
-
-@mcp.tool()
-def gemini_clear_defaults() -> dict:
-    """Wipe all saved default args for the gemini tools."""
-    profile_config.clear_provider_settings(profile_config.PROVIDER_GEMINI)
-    return {"ok": True, "settings": {}}
 
 
 def main():
