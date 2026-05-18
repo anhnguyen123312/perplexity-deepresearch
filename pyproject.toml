@@ -13,6 +13,8 @@ dependencies = [
     "playwright>=1.59.0",
     "playwright-stealth>=2.0.0",
     "patchright>=1.59.0",
+    "cloakbrowser>=0.3.28",
+    "rnet>=3.0.0rc22",
     "rookiepy>=0.5.0; sys_platform == 'win32'",
     "pywin32>=300; sys_platform == 'win32'",
 ]

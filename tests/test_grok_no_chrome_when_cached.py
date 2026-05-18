@@ -1,11 +1,13 @@
 """Verify GrokClient.search opens Chrome only when statsig cache misses or
-the server returns 403 anti-bot — never on the happy path with hot cache.
+the server returns 401/403 — never on the happy path with hot cache.
+
+The client now uses rnet (BoringSSL) instead of curl_cffi so the mocks patch
+``deep_research.grok.client.BlockingClient`` and emit responses with the rnet
+shape (``status`` stringifies like ``"200 OK"``; ``text()`` is a method).
 """
 
 from __future__ import annotations
 
-import io
-from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -13,21 +15,30 @@ import pytest
 from deep_research.grok.client import GrokClient
 
 
-def _fake_stream_lines() -> list[bytes]:
-    return [
-        (
-            b'{"result":{"conversation":{"conversationId":"c1"},'
-            b'"response":{"responseId":"r1","token":"4"}}}'
-        ),
-    ]
+_NDJSON = (
+    '{"result":{"conversation":{"conversationId":"c1"},'
+    '"response":{"responseId":"r1","token":"4"}}}'
+)
 
 
-def _fake_response(status: int = 200, body: bytes = b"") -> MagicMock:
+def _fake_response(status: int = 200, body: str | None = None) -> MagicMock:
     r = MagicMock()
-    r.status_code = status
-    r.iter_lines = MagicMock(return_value=iter(_fake_stream_lines()))
-    r.iter_content = MagicMock(return_value=iter([body]))
+    # rnet's ``Response.status`` is a StatusCode that stringifies as e.g.
+    # ``"200 OK"``; ``client.py`` parses the leading int.
+    r.status = f"{status} OK"
+    r.text = MagicMock(return_value=body if body is not None else _NDJSON)
     return r
+
+
+def _client_with_responses(responses) -> MagicMock:
+    """Build a mock BlockingClient whose .post() returns the given responses
+    (list ⇒ side_effect, single ⇒ return_value)."""
+    mc = MagicMock()
+    if isinstance(responses, list):
+        mc.post.side_effect = responses
+    else:
+        mc.post.return_value = responses
+    return mc
 
 
 @pytest.fixture
@@ -37,6 +48,7 @@ def fake_cookies() -> dict[str, str]:
 
 def test_no_chrome_when_statsig_and_cookies_cached(fake_cookies):
     """Happy path: both caches hot ⇒ Chrome capture must NOT be invoked."""
+    mock_client = _client_with_responses(_fake_response(200))
     with patch(
         "deep_research.grok.client.get_grok_cookies_cached",
         return_value=fake_cookies,
@@ -46,9 +58,9 @@ def test_no_chrome_when_statsig_and_cookies_cached(fake_cookies):
     ) as get_cached, patch(
         "deep_research.grok.statsig.capture_statsig_id_via_chrome"
     ) as capture, patch(
-        "curl_cffi.requests.Session.post",
-        return_value=_fake_response(200),
-    ) as post:
+        "deep_research.grok.client.BlockingClient",
+        return_value=mock_client,
+    ):
         client = GrokClient()
         result = client.search("2+2?", mode="auto")
 
@@ -56,11 +68,12 @@ def test_no_chrome_when_statsig_and_cookies_cached(fake_cookies):
         assert result["answer"] == "4"
         capture.assert_not_called()
         assert get_cached.called
-        assert post.call_count == 1
+        assert mock_client.post.call_count == 1
 
 
 def test_chrome_capture_when_statsig_missing(fake_cookies):
     """Cold statsig cache ⇒ capture invoked once."""
+    mock_client = _client_with_responses(_fake_response(200))
     with patch(
         "deep_research.grok.client.get_grok_cookies_cached",
         return_value=fake_cookies,
@@ -71,8 +84,8 @@ def test_chrome_capture_when_statsig_missing(fake_cookies):
         "deep_research.grok.statsig.capture_statsig_id_via_chrome",
         return_value="FRESH_SID",
     ) as capture, patch(
-        "curl_cffi.requests.Session.post",
-        return_value=_fake_response(200),
+        "deep_research.grok.client.BlockingClient",
+        return_value=mock_client,
     ):
         client = GrokClient()
         result = client.search("2+2?", mode="auto")
@@ -83,9 +96,10 @@ def test_chrome_capture_when_statsig_missing(fake_cookies):
 
 def test_chrome_capture_on_403_anti_bot(fake_cookies):
     """403 anti-bot on attempt 0 ⇒ capture refresh on attempt 1, then 200."""
-    err_body = b'{"error":{"code":7,"message":"Request rejected by anti-bot rules."}}'
-    responses = [_fake_response(403, body=err_body), _fake_response(200)]
-
+    err_body = '{"error":{"code":7,"message":"Request rejected by anti-bot rules."}}'
+    mock_client = _client_with_responses(
+        [_fake_response(403, body=err_body), _fake_response(200)]
+    )
     with patch(
         "deep_research.grok.client.get_grok_cookies_cached",
         return_value=fake_cookies,
@@ -96,19 +110,27 @@ def test_chrome_capture_on_403_anti_bot(fake_cookies):
         "deep_research.grok.statsig.capture_statsig_id_via_chrome",
         return_value="FRESH_SID",
     ) as capture, patch(
-        "curl_cffi.requests.Session.post",
-        side_effect=responses,
-    ) as post:
+        "deep_research.grok.client.BlockingClient",
+        return_value=mock_client,
+    ):
         client = GrokClient()
         result = client.search("2+2?", mode="auto")
 
         assert "error" not in result, result
-        assert post.call_count == 2
+        assert mock_client.post.call_count == 2
         assert capture.call_count == 1
 
 
-def test_no_chrome_on_401(fake_cookies):
-    """401 ⇒ invalidate cookies + return error, no Chrome capture."""
+def test_persistent_401_returns_error_after_one_refresh(fake_cookies):
+    """Persistent 401 ⇒ one Chrome refresh retry, then error with status=401.
+
+    401 is now treated identically to 403: both indicate the cached
+    cookies / statsig are dead, both trigger a single CloakBrowser refresh,
+    both surface ``status`` in the error payload if the refresh doesn't help.
+    """
+    mock_client = _client_with_responses(
+        [_fake_response(401, body="unauthorized"), _fake_response(401, body="unauthorized")]
+    )
     with patch(
         "deep_research.grok.client.get_grok_cookies_cached",
         return_value=fake_cookies,
@@ -116,16 +138,18 @@ def test_no_chrome_on_401(fake_cookies):
         "deep_research.grok.statsig.get_cached_statsig_id",
         return_value="CACHED_SID",
     ), patch(
-        "deep_research.grok.statsig.capture_statsig_id_via_chrome"
+        "deep_research.grok.statsig.capture_statsig_id_via_chrome",
+        return_value="FRESH_SID",
     ) as capture, patch(
         "deep_research.grok.client.invalidate_grok_cache"
     ) as inval, patch(
-        "curl_cffi.requests.Session.post",
-        return_value=_fake_response(401, body=b"unauthorized"),
+        "deep_research.grok.client.BlockingClient",
+        return_value=mock_client,
     ):
         client = GrokClient()
         result = client.search("2+2?", mode="auto")
 
         assert result.get("status") == 401
-        capture.assert_not_called()
+        assert capture.call_count == 1
         inval.assert_called_once()
+        assert mock_client.post.call_count == 2

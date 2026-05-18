@@ -59,16 +59,15 @@ def store_statsig_id(path: str, method: str, statsig_id: str) -> None:
 def capture_statsig_id_via_chrome(
     target_path: str = "/rest/app-chat/conversations/new",
     method: str = "POST",
-    headless: bool = False,
+    headless: bool = True,
     timeout_secs: int = 90,
 ) -> str:
-    """Capture x-statsig-id by driving Patchright with the user's Chrome 148.
+    """Capture x-statsig-id by driving CloakBrowser (stealth Chromium 146).
 
-    Patchright is a patched-Playwright distribution whose runtime CDP patches
-    and automation-flag stripping bypass Cloudflare's managed challenge when
-    paired with the user's local Chrome binary via ``channel="chrome"``. The
-    stock Playwright + ``playwright_stealth`` combo gets stuck on the "Just
-    a moment..." page on grok.com; Patchright clears it within ~7s.
+    CloakBrowser ships a custom Chromium binary with 49 source-level C++
+    fingerprint patches (canvas, WebGL, audio, GPU, screen, WebRTC, CDP
+    input). It clears Cloudflare's managed challenge on grok.com where
+    Patchright + the user's local Chrome started returning 403 in 2026-Q2.
 
     Runs in a worker thread so it stays usable from code paths that already
     have a running asyncio loop (e.g. the FastMCP tool handler). Sync
@@ -93,13 +92,10 @@ def _do_capture_statsig_id_via_chrome(
     headless: bool,
     timeout_secs: int,
 ) -> str:
-    # Patchright is a patched Playwright build whose runtime CDP patches +
-    # automation-flag stripping bypass Cloudflare's managed challenge when
-    # paired with the user's real Chrome 148 binary via channel="chrome".
     import os
     import tempfile
 
-    from patchright.sync_api import sync_playwright
+    from cloakbrowser import launch_persistent_context
 
     from .. import profile_config
 
@@ -114,15 +110,16 @@ def _do_capture_statsig_id_via_chrome(
     captured: dict[str, str | None] = {"id": None}
     fresh_cookies: dict[str, str] = {}
 
-    pw_cm = sync_playwright()
-    pw = pw_cm.start()
     udd = tempfile.mkdtemp(prefix="grok_statsig_")
-    ctx = pw.chromium.launch_persistent_context(
-        user_data_dir=udd,
-        channel="chrome",
+    # CloakBrowser bundles its own stealth Chromium — no ``channel="chrome"``.
+    # ``humanize=True`` adds Bézier mouse curves and per-character typing so
+    # Cloudflare's behavioural checks don't flag the automated submit.
+    ctx = launch_persistent_context(
+        udd,
         headless=headless,
         no_viewport=True,
         locale="en-US",
+        humanize=True,
     )
     try:
         ctx.add_cookies(cookies)
@@ -169,14 +166,7 @@ def _do_capture_statsig_id_via_chrome(
             pass
     finally:
         try:
-            browser = ctx.browser
             ctx.close()
-            if browser is not None:
-                browser.close()
-        except Exception:
-            pass
-        try:
-            pw_cm.__exit__(None, None, None)
         except Exception:
             pass
 

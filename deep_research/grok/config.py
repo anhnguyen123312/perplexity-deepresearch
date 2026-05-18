@@ -21,18 +21,24 @@ VALID_MODES = {MODE_AUTO, MODE_FAST, MODE_EXPERT, MODE_HEAVY, MODE_GROK_4_3_BETA
 # Default model — server picks the right one based on user tier
 DEFAULT_MODEL_NAME = None  # let server decide
 
-# curl_cffi impersonate target — chrome146 is the highest chrome profile
-# shipped by curl_cffi 0.15.0; closest match to the user's installed Chrome 148.
-IMPERSONATE_TARGET = "chrome146"
+# rnet emulation target — must match the Chrome major that CloakBrowser's
+# binary reports via ``navigator.userAgent``. CloakBrowser 0.3.28 ships
+# Chromium 146 (per the README), but the wrapper spoofs ``Chrome/145.0.0.0``
+# in the UA — and ``cf_clearance`` is bound to that exact UA + the TLS
+# fingerprint of the binary's BoringSSL build. Use rnet's Chrome145
+# emulation so the replayed TLS handshake matches what Cloudflare expects.
+IMPERSONATE_TARGET = "Chrome145"
 
-# Match Chrome version on the user's machine; cf_clearance is UA-bound
+# Cloak's actual emitted UA — see ``ua_test`` script in docs/grok-cloakbrowser/exp.md.
+# Pinned to Chrome 145 because cf_clearance is UA-bound (any 145↔146 drift
+# triggers the "Just a moment..." interstitial on replay).
 CHROME_UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/148.0.0.0 Safari/537.36"
+    "Chrome/145.0.0.0 Safari/537.36"
 )
 
-SEC_CH_UA = '"Not.A;Brand";v="99", "Chrome";v="148", "Chromium";v="148"'
+SEC_CH_UA = '"Not.A;Brand";v="99", "Chrome";v="145", "Chromium";v="145"'
 
 # Where we cache the captured x-statsig-id (path+method bound, deterministic)
 def get_state_dir() -> Path:

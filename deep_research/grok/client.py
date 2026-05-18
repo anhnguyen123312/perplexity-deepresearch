@@ -1,27 +1,40 @@
 """GrokClient: send a query to grok.com and stream back the answer.
 
-Verified end-to-end (2026-05-11) for both `auto` and `grok-420-computer-use-sa`
-(Grok 4.3 beta) modes. See `docs/grok-mcp/research.md` for the full schema and
-reverse-engineering notes.
+Lightweight pattern (2026-05-18):
+
+- Hot path uses **rnet** (Rust HTTP client on BoringSSL) with
+  ``Emulation.Chrome145`` to replay ``cf_clearance`` cookies that
+  CloakBrowser earned. BoringSSL matches Cloak's TLS handshake closely
+  enough (incl. GREASE ext 17613) for Cloudflare to honour the cookie.
+- Browser fires **only** on 401/403: the existing
+  :func:`~deep_research.grok.statsig.get_statsig_id` refresh path launches
+  CloakBrowser ephemerally, captures a fresh ``x-statsig-id`` AND merges
+  freshly-issued ``cf_clearance`` / ``__cf_bm`` into the on-disk config
+  store, then exits. The retry then sees the refreshed cookies via
+  :func:`~deep_research.grok.cookies.get_grok_cookies_cached`.
+
+curl_cffi (and rnet) cannot replay ``cf_clearance`` issued to a UA other
+than ``Chrome/145.0.0.0`` — the cookie is bound to the exact UA + TLS that
+solved the challenge. The constants in :mod:`.config` are pinned to match.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 import uuid
 from typing import Any
 
-from curl_cffi import requests
+from rnet import Emulation
+from rnet.blocking import Client as BlockingClient
 
 from .config import (
     CHROME_UA,
     CONVERSATIONS_NEW,
     DEFAULT_DEVICE_ENV,
-    IMPERSONATE_TARGET,
     MODE_GROK_4_3_BETA,
     SEC_CH_UA,
-    STREAM_TIMEOUT_SECS,
     VALID_MODES,
 )
 from .cookies import get_grok_cookies_cached, invalidate_grok_cache
@@ -35,32 +48,30 @@ class GrokClient:
     """Synchronous client wrapping grok.com's chat-send endpoint."""
 
     def __init__(self) -> None:
-        self._sess: requests.Session | None = None
-        self._cookies: dict[str, str] | None = None
+        self._client: BlockingClient | None = None
 
-    def _ensure_session(self) -> requests.Session:
-        if self._sess is None:
-            self._cookies = get_grok_cookies_cached()
-            sess = requests.Session(impersonate=IMPERSONATE_TARGET)
-            for k, v in self._cookies.items():
-                sess.cookies.set(k, v, domain=".grok.com")
-            sess.headers.update({"user-agent": CHROME_UA})
-            self._sess = sess
-        return self._sess
+    def _ensure_client(self) -> BlockingClient:
+        if self._client is None:
+            self._client = BlockingClient(
+                emulation=Emulation.Chrome145,
+                user_agent=CHROME_UA,
+                cookie_store=True,
+            )
+        return self._client
 
-    def _drop_session_and_invalidate_cache(self) -> None:
-        """Forget the in-memory session and expire stored grok entries.
+    def _drop_client_and_invalidate_cache(self) -> None:
+        """Forget the in-memory rnet client and expire stored grok entries.
 
-        Called after a 401/403 so the next ``_ensure_session`` triggers a
-        fresh Chrome scan + cache save instead of reusing dead cookies.
+        Called after a 401/403 so the retry path triggers a fresh
+        CloakBrowser capture (which also harvests new cf_clearance /
+        __cf_bm into the config store) instead of reusing dead cookies.
         """
-        self._sess = None
-        self._cookies = None
+        self._client = None
         invalidate_grok_cache()
 
-    def _build_headers(self, statsig_id: str) -> dict[str, str]:
+    def _build_headers(self, statsig_id: str, cookies: dict[str, str]) -> dict[str, str]:
+        cookie_header = "; ".join(f"{k}={v}" for k, v in cookies.items())
         return {
-            "user-agent": CHROME_UA,
             "accept": "*/*",
             "accept-language": "en-US",
             "content-type": "application/json",
@@ -71,6 +82,7 @@ class GrokClient:
             "sec-ch-ua-platform": '"macOS"',
             "x-statsig-id": statsig_id,
             "x-xai-request-id": str(uuid.uuid4()),
+            "cookie": cookie_header,
         }
 
     def _build_body(self, query: str, mode_id: str) -> dict[str, Any]:
@@ -145,6 +157,26 @@ class GrokClient:
                 stack.extend(cur)
         return found
 
+    def _post_chat(
+        self,
+        client: BlockingClient,
+        body: dict[str, Any],
+        headers: dict[str, str],
+    ) -> tuple[int, str]:
+        """rnet POST returning (status_code, full body text).
+
+        rnet's blocking ``Response.status`` is a ``StatusCode`` that
+        stringifies as e.g. ``"200 OK"``. Parse out the integer.
+        """
+        resp = client.post(
+            CONVERSATIONS_NEW,
+            headers=headers,
+            body=json.dumps(body).encode("utf-8"),
+        )
+        status_code = int(str(resp.status).split()[0])
+        text = resp.text()
+        return status_code, text
+
     def search(
         self,
         query: str,
@@ -164,89 +196,67 @@ class GrokClient:
                 "error": f"Invalid mode {mode!r}. Valid: {sorted(VALID_MODES)}"
             }
 
-        sess = self._ensure_session()
-
-        # First attempt with cached statsig-id; on 403 anti-bot, refresh once.
+        # First attempt with cached cookies+statsig; on 401/403, refresh once
+        # via CloakBrowser (statsig.py + cookie harvest), then retry.
         for attempt in (0, 1):
-            statsig_id = get_statsig_id(CHAT_PATH, "POST",
-                                         refresh=(attempt == 1))
-            headers = self._build_headers(statsig_id)
+            # ORDER MATTERS: on a refresh attempt we want the *new* cookies
+            # that the CloakBrowser capture path merged into profile_config,
+            # so ``get_grok_cookies_cached`` must run AFTER ``get_statsig_id``.
+            statsig_id = get_statsig_id(CHAT_PATH, "POST", refresh=(attempt == 1))
+            cookies = get_grok_cookies_cached()
+            headers = self._build_headers(statsig_id, cookies)
             body = self._build_body(query, mode)
+            client = self._ensure_client()
 
             t0 = time.time()
-            r = sess.post(
-                CONVERSATIONS_NEW,
-                json=body,
-                headers=headers,
-                timeout=STREAM_TIMEOUT_SECS,
-                stream=True,
-            )
+            try:
+                status_code, text = self._post_chat(client, body, headers)
+            except Exception as e:
+                self._drop_client_and_invalidate_cache()
+                return {"error": f"rnet request error: {e}"}
 
-            if r.status_code == 403:
-                # 403 has two causes:
-                # 1. Statsig anti-bot — refresh statsig-id and retry.
-                # 2. Stale grok cookies — invalidate the config-store entry
-                #    so the next call re-scans Chrome.
-                err_body = b"".join(r.iter_content()).decode(
-                    "utf-8", "replace"
-                )
-                if attempt == 0 and "anti-bot" in err_body.lower():
+            if status_code in (401, 403):
+                # Either Cloudflare invalidated cf_clearance (cookie expired
+                # or fingerprint drifted) or grok L7 anti-bot rejected the
+                # statsig-id. Both are fixed by re-running the CloakBrowser
+                # capture: it warms a fresh cf_clearance AND records a new
+                # x-statsig-id, persisting both to ``profile_config``.
+                if attempt == 0:
+                    self._drop_client_and_invalidate_cache()
                     continue
-                self._drop_session_and_invalidate_cache()
                 return {
-                    "error": f"403 from grok.com: {err_body[:500]}",
-                    "status": 403,
+                    "error": f"{status_code} from grok.com: {text[:500]}",
+                    "status": status_code,
                 }
 
-            if r.status_code == 401:
-                err_body = b"".join(r.iter_content()).decode(
-                    "utf-8", "replace"
-                )
-                self._drop_session_and_invalidate_cache()
+            if status_code != 200:
                 return {
-                    "error": f"401 from grok.com: {err_body[:500]}",
-                    "status": 401,
+                    "error": f"HTTP {status_code}: {text[:500]}",
+                    "status": status_code,
                 }
 
-            if r.status_code != 200:
-                err_body = b"".join(r.iter_content()).decode(
-                    "utf-8", "replace"
-                )
-                return {
-                    "error": f"HTTP {r.status_code}: {err_body[:500]}",
-                    "status": r.status_code,
-                }
-
-            # 200 — consume stream
+            # 200 — text is the full ndjson stream. Parse line by line.
             answer_parts: list[str] = []
             conversation_id: str | None = None
             response_id: str | None = None
             line_count = 0
 
-            for raw_line in r.iter_lines():
-                if not raw_line:
+            for line in text.splitlines():
+                if not line:
                     continue
-                line = raw_line.decode("utf-8", "replace") \
-                    if isinstance(raw_line, bytes) else raw_line
                 line_count += 1
                 try:
                     j = json.loads(line)
                 except json.JSONDecodeError:
                     continue
 
-                # Reconstruct answer from token frames
                 answer_parts.extend(
                     self._walk_tokens(j, include_thinking=include_thinking)
                 )
-
-                # Capture identifiers (first occurrence wins)
-                ids = self._walk_for_keys(
-                    j, ("conversationId", "responseId")
-                )
+                ids = self._walk_for_keys(j, ("conversationId", "responseId"))
                 conversation_id = conversation_id or ids.get("conversationId")
                 if response_id is None:
                     rid = ids.get("responseId")
-                    # Skip the userResponse echo; take the assistant's
                     if rid and "userResponse" not in line:
                         response_id = rid
 
