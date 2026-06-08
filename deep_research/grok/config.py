@@ -1,8 +1,37 @@
 """Grok.com endpoints, headers, and mode IDs."""
 
+import os
+import re
 from pathlib import Path
 
 from .. import cloak
+
+
+def grok_proxy_url() -> str | None:
+    """Outbound proxy for grok traffic (env ``GROK_PROXY``), or None.
+
+    Cloudflare hard-blocks datacenter server IPs for grok.com, but CloakBrowser
+    can still solve the JS challenge through a proxy (verified via Oxylabs DC).
+    Set ``GROK_PROXY=http://user:pass@host:port`` so BOTH the rnet hot path and
+    the CloakBrowser capture exit through the SAME IP — the earned cf_clearance
+    is IP-bound, so they must match. Required to run grok-web on a datacenter host.
+    """
+    return os.environ.get("GROK_PROXY") or None
+
+
+def grok_proxy_playwright() -> dict | None:
+    """``GROK_PROXY`` as a Playwright/CloakBrowser ``proxy=`` dict, or None."""
+    url = grok_proxy_url()
+    if not url:
+        return None
+    m = re.match(r"https?://(?:([^:@]+):([^@]+)@)?([^:/]+):(\d+)", url)
+    if not m:
+        return None
+    user, pw, host, port = m.groups()
+    cfg: dict = {"server": f"http://{host}:{port}"}
+    if user:
+        cfg["username"], cfg["password"] = user, pw
+    return cfg
 
 
 GROK_BASE = "https://grok.com"

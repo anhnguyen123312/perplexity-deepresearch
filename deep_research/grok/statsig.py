@@ -138,10 +138,18 @@ def _do_capture_statsig_id_via_chrome(
 
     raw_cookies = get_grok_cookies()
     profile_name = _capture_profile_name()
+    # Inject ONLY the login cookies. Verified through GROK_PROXY: a fresh context
+    # with just sso/sso-rw/x-userid lets Cloudflare issue + CloakBrowser solve a
+    # clean challenge bound to the current exit IP, then statsig captures. Shipping
+    # the stale IP-bound cf_clearance/__cf_bm (or extra analytics cookies) makes CF
+    # reject the session and the headless solve fails. The harvest below merges the
+    # freshly-earned cf_clearance back for the rnet hot path.
+    LOGIN_COOKIES = {"sso", "sso-rw", "x-userid", "grok_device_id"}
     cookies = [
         {"name": k, "value": v, "domain": ".grok.com",
          "path": "/", "secure": True, "httpOnly": False, "sameSite": "Lax"}
         for k, v in raw_cookies.items()
+        if k in LOGIN_COOKIES
     ]
 
     captured: dict[str, str | None] = {"id": None}
@@ -151,13 +159,21 @@ def _do_capture_statsig_id_via_chrome(
     # CloakBrowser bundles its own stealth Chromium — no ``channel="chrome"``.
     # ``humanize=True`` adds Bézier mouse curves and per-character typing so
     # Cloudflare's behavioural checks don't flag the automated submit.
-    ctx = launch_persistent_context(
-        udd,
+    launch_kwargs = dict(
         headless=headless,
         no_viewport=True,
         locale="en-US",
         humanize=True,
     )
+    # Capture through GROK_PROXY (if set) so the cf_clearance CloakBrowser earns
+    # is bound to the SAME exit IP the rnet hot path uses — mandatory on
+    # datacenter hosts (Cloudflare blocks the server IP for grok.com directly).
+    from .config import grok_proxy_playwright
+
+    proxy_cfg = grok_proxy_playwright()
+    if proxy_cfg:
+        launch_kwargs["proxy"] = proxy_cfg
+    ctx = launch_persistent_context(udd, **launch_kwargs)
     try:
         ctx.add_cookies(cookies)
         page = ctx.new_page()
@@ -172,22 +188,30 @@ def _do_capture_statsig_id_via_chrome(
 
         page.on("request", on_request)
         page.goto("https://grok.com/", wait_until="domcontentloaded",
-                  timeout=60000)
-        page.wait_for_timeout(4000)
+                  timeout=90000)
+        page.wait_for_timeout(6000)
 
         # grok.com pops a "Grok Build" promo modal on load that overlays the
         # composer — the chat input ([contenteditable]) is absent until it is
         # dismissed. Esc closes it (verified 2026-06: input count 0 -> 1, statsig
         # then captures). Works headless too, so this — NOT a Cloudflare
-        # challenge — was the real cause of capture failures.
-        for _ in range(3):
+        # challenge — was the real cause of capture failures. Retry Esc until the
+        # composer appears: through GROK_PROXY the SPA + modal render slowly, so a
+        # single early Esc fires before the modal exists and the input never shows.
+        # Press Esc UNCONDITIONALLY a few times to fully dismiss the modal before
+        # touching the composer. A `count()`-based early break is wrong: the input
+        # can exist in the DOM *behind* the still-open modal, so we'd break with the
+        # modal up and the later `wait_for(state="visible")` then times out. This
+        # blind-Esc sequence is the flow verified through GROK_PROXY.
+        composer_sel = '[contenteditable="true"]'
+        for _ in range(5):
             try:
                 page.keyboard.press("Escape")
             except Exception:
                 break
-            page.wait_for_timeout(400)
+            page.wait_for_timeout(700)
 
-        for sel in ['[contenteditable="true"]', "textarea"]:
+        for sel in [composer_sel, "textarea"]:
             try:
                 box = page.locator(sel).first
                 box.wait_for(state="visible", timeout=8000)

@@ -37,6 +37,7 @@ from .config import (
     MODE_GROK_4_3_BETA,
     SEC_CH_UA,
     VALID_MODES,
+    grok_proxy_url,
 )
 from .cookies import get_grok_cookies_cached, invalidate_grok_cache
 from .statsig import get_statsig_id
@@ -53,7 +54,7 @@ class GrokClient:
 
     def _ensure_client(self) -> BlockingClient:
         if self._client is None:
-            self._client = BlockingClient(
+            kwargs = dict(
                 # rnet TLS target follows CloakBrowser's bundled Chromium major
                 # (the browser that earns cf_clearance); nearest-available rnet
                 # Emulation, falling back to the pinned Chrome145.
@@ -62,6 +63,15 @@ class GrokClient:
                 user_agent=CHROME_UA,
                 cookie_store=True,
             )
+            # Route the hot path through GROK_PROXY (if set) so it exits the SAME
+            # IP that CloakBrowser earned cf_clearance on — required on datacenter
+            # hosts where Cloudflare blocks the server's own IP for grok.com.
+            proxy_url = grok_proxy_url()
+            if proxy_url:
+                from rnet import Proxy
+
+                kwargs["proxies"] = [Proxy.all(proxy_url)]
+            self._client = BlockingClient(**kwargs)
         return self._client
 
     def _drop_client_and_invalidate_cache(self) -> None:
