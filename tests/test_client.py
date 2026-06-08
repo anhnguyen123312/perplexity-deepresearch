@@ -574,7 +574,7 @@ class TestModeMapping:
     """Test mode/model mapping for different modes."""
 
     def test_payload_deep_research(self, mock_cookies, mock_sse_chunks):
-        """Assert mode='asi', model_preference='pplx_asi' (true web DR value)."""
+        """Assert mode='copilot', model_preference='pplx_alpha' (working DR value)."""
         with (
             patch(
                 "deep_research.perplexity.client.get_cookies", return_value=mock_cookies
@@ -605,8 +605,8 @@ class TestModeMapping:
             call_args = session_instance.request.call_args
             payload = call_args[1]["json"]
 
-            assert payload["params"]["mode"] == "asi"
-            assert payload["params"]["model_preference"] == "pplx_asi"
+            assert payload["params"]["mode"] == "copilot"
+            assert payload["params"]["model_preference"] == "pplx_alpha"
 
     def test_payload_pro(self, mock_cookies, mock_sse_chunks):
         """Assert mode='copilot', model_preference='pplx_pro'."""

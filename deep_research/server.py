@@ -55,11 +55,11 @@ def perplexity_deep_research(
     """
     Perform exhaustive multi-step research on a query.
 
-    Uses Perplexity's Advanced Research mode (asi / pplx_asi model — the exact
-    pair the web app sends) for comprehensive analysis with multiple search
-    steps and detailed citations. NOTE: pplx_asi is tier-gated; an account
-    without ASI / Advanced Research credits gets a BLOCKED (insufficient_credits)
-    error — use perplexity_ask (pro) or perplexity_search (auto) instead.
+    Uses Perplexity's deep research mode (copilot / pplx_alpha model) for
+    comprehensive multi-step analysis with detailed citations. Works on all
+    account tiers (verified live). (The asi/pplx_asi pair is Perplexity's
+    Comet / computer-use agent — query_source="computer" — not Deep Research,
+    so it is intentionally NOT used here.)
 
     Args:
         query: The research question

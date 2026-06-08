@@ -38,11 +38,14 @@ supported_features byte-identical; version=2.18. mode "pro" = (copilot, pplx_pro
 2. **High-entropy client hints** (sec-ch-ua-arch/bitness/full-version[-list]/model/platform-version):
    web thật gửi, ta KHÔNG. Cố ý bỏ — device-specific + chỉ gửi sau khi server cấp Accept-CH; server
    không bắt buộc (MCP vẫn chạy). Giả chúng = thêm rủi ro bất nhất. Để trống = trạng thái client "chưa được cấp".
-3. **Deep-research mode_preference**: web thật = **("asi","pplx_asi")**. ✅ ĐÃ CHỐT (user chọn web-100%):
-   mode_mapping["deep research"] đổi từ ("copilot","pplx_alpha") → **("asi","pplx_asi")**
-   (client.py search). Cảnh báo: account KHÔNG có ASI/Advanced-Research credit sẽ nhận
-   BLOCKED/insufficient_credits (đã xử lý ở _finalize_chunks + ghi rõ trong docstring tool).
-   Test test_payload_deep_research cập nhật assert asi/pplx_asi. 292 passed.
+3. **Deep-research mode — BÀI HỌC (v0.8.0→v0.8.1)**: từng đổi sang ("asi","pplx_asi") tưởng là
+   "web 100%". SAI: capture `captured_modes.json` entry0 có **`query_source: "computer"`** → đó là
+   request của **Perplexity Comet / computer-use agent**, KHÔNG phải Deep Research. LIVE TEST chứng minh:
+   asi/pplx_asi → `error_code: GENERIC_FAILED_RESPONSE` ("Please try again later"), `_extras` cho thấy
+   account free (subscription_tier=null). Đã **REVERT về ("copilot","pplx_alpha")** — verified live RA
+   kết quả (7.6s, 505 ký tự, 10 citations). Bug phụ đã sửa luôn: `_finalize_chunks` so `status=="FAILED"`
+   (hoa) nhưng server gửi `'failed'` (thường) → normalize `.upper()` + surface error_code/text.
+   **Quy tắc: capture phải kiểm `query_source` (home vs computer) trước khi tin là mode nào.**
 
 ## Artefacts
 - tools/capture_perplexity_full_headers.py — capture all_headers() (đã redact secret ở output json).

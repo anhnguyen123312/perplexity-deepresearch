@@ -232,11 +232,16 @@ class PerplexityClient:
         attempts = 0
         while not self._has_final_answer(chunks):
             last = chunks[-1]
-            status = last.get("status")
+            # Status casing varies on the wire ("FAILED" vs "failed"); normalise.
+            status = (last.get("status") or "").upper()
             if status == "FAILED":
-                raise PerplexityError(
-                    f"Perplexity returned FAILED: {last.get('text') or last.get('_extras')}"
-                )
+                # ``GENERIC_FAILED_RESPONSE`` is what the server returns when the
+                # account is not entitled to the requested model (e.g. a free
+                # account asking for asi/pplx_asi Advanced Research) — surface
+                # the error_code + text so the cause is actionable instead of a
+                # misleading "No answer found".
+                detail = last.get("text") or last.get("error_code") or last.get("_extras")
+                raise PerplexityError(f"Perplexity returned FAILED: {detail}")
             if status == "BLOCKED":
                 # Server refused the request (e.g. tier-locked model: ASI /
                 # Advanced Research consumes ``pplx_asi`` credits). The
@@ -510,14 +515,15 @@ class PerplexityClient:
         Returns:
             dict: Response with 'answer', 'citations', 'backend_uuid'
         """
-        # Mode/model mapping — values verified byte-for-byte against live
-        # perplexity.ai web captures: Pro = copilot/pplx_pro (2026-05-11), deep
-        # research = asi/pplx_asi (the "Advanced research" pair, captured_modes
-        # .json entry[0]). NOTE: asi/pplx_asi is the TRUE web value but is tier-
-        # gated — accounts without ASI / Advanced Research credits get a BLOCKED
-        # (insufficient_credits) response (handled in _finalize_chunks).
+        # Mode/model mapping — Pro = copilot/pplx_pro (verified live 2026-05-11).
+        # deep research = copilot/pplx_alpha: this is the WORKING multi-step
+        # research pair (verified live: returns a researched answer in ~12s on a
+        # free account). Do NOT use asi/pplx_asi here — despite a capture showing
+        # it, that request had ``query_source: "computer"`` i.e. it belongs to
+        # Perplexity's Comet / computer-use agent, NOT Deep Research, and returns
+        # GENERIC_FAILED_RESPONSE for a normal query_source="home" ask.
         mode_mapping = {
-            "deep research": ("asi", "pplx_asi"),
+            "deep research": ("copilot", "pplx_alpha"),
             "pro": ("copilot", "pplx_pro"),
             "reasoning": ("copilot", "r1"),
             "auto": ("concise", "turbo"),
