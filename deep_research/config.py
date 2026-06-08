@@ -44,14 +44,37 @@ DEFAULT_HEADERS = {
     "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",  # noqa: E501
 }
 
-# Headers attached to the SSE ask request (matches what perplexity.ai web app sends)
-SSE_REQUEST_HEADERS = {
+# Headers attached to the SSE ask request — reproduces EXACTLY the low-entropy
+# header set a real Chrome XHR/fetch sends to /rest/sse/perplexity_ask. Verified
+# 2026-06-08 against a live Playwright ``request.all_headers()`` capture (the old
+# ``request.headers`` view omitted browser-auto headers); see
+# docs/perplexity-mcp-revert/captured_full_headers.json and
+# docs/web-parity-audit/exp.md.
+#
+# DEFAULT_HEADERS (set on the curl_cffi session) carries NAVIGATION-frame headers
+# that Chrome sends only on top-level document loads, never on fetch()/XHR. They
+# leak onto the SSE POST, so each per-request entry below either overrides the
+# leaked nav value with the correct XHR value, or suppresses it. A ``None`` value
+# uses libcurl's header-removal mechanism ("Header-Name:" with an empty value) to
+# strip a leaked nav header so it never reaches the wire.
+SSE_REQUEST_HEADERS: dict[str, str | None] = {
     "accept": "text/event-stream",
+    "accept-language": "en-US,en;q=0.9",  # real XHR sends it (do NOT suppress)
     "content-type": "application/json",
+    "origin": API_BASE_URL,               # real browser sends Origin on the POST
+    "priority": "u=1, i",                 # XHR priority (nav leak value is "u=0, i")
+    "referer": f"{API_BASE_URL}/",
+    "sec-fetch-dest": "empty",            # XHR (nav leak value is "document")
+    "sec-fetch-mode": "cors",             # XHR (nav leak value is "navigate")
+    "sec-fetch-site": "same-origin",
     "x-perplexity-request-endpoint": ENDPOINT_SSE_ASK,
     "x-perplexity-request-reason": "ask-query-state-provider",
     "x-perplexity-request-try-number": "1",
-    "referer": f"{API_BASE_URL}/",
+    # Truly nav-only — ABSENT from the real XHR capture; strip the leak.
+    "sec-fetch-user": None,
+    "upgrade-insecure-requests": None,
+    "cache-control": None,
+    "dnt": None,
 }
 
 # Block use cases declared as supported by the perplexity.ai web client.

@@ -55,8 +55,11 @@ def perplexity_deep_research(
     """
     Perform exhaustive multi-step research on a query.
 
-    Uses Perplexity's deep research mode (pplx_alpha model) for comprehensive
-    analysis with multiple search steps and detailed citations.
+    Uses Perplexity's Advanced Research mode (asi / pplx_asi model — the exact
+    pair the web app sends) for comprehensive analysis with multiple search
+    steps and detailed citations. NOTE: pplx_asi is tier-gated; an account
+    without ASI / Advanced Research credits gets a BLOCKED (insufficient_credits)
+    error — use perplexity_ask (pro) or perplexity_search (auto) instead.
 
     Args:
         query: The research question
@@ -322,41 +325,87 @@ def _get_gemini_config() -> dict:
 @mcp.tool()
 def gemini_deep_research(
     query: str,
+    wait: bool = False,
     poll_interval: float = 30.0,
     timeout: float = 1800.0,
 ) -> dict:
-    """Run a full Deep Research on gemini.google.com and return the report.
+    """Start a Deep Research on gemini.google.com. NON-BLOCKING by default.
 
-    One-shot end-to-end: this tool internally drives Gemini's 3-stage DR
-    flow (plan → confirm "Start research" → poll ``READ_CHAT``) and blocks
-    until the final markdown report lands (typically 5-15 min) or ``timeout``
-    elapses (default 30 min).
+    Gemini Deep Research takes 5–15 min. Blocking a single MCP tool call that
+    long makes the client time out (the call appears to "die" and you have to
+    re-ask). So by default this tool only KICKS OFF the run (plan → confirm
+    "Start research", ~30–60 s) and returns a running handle immediately:
+
+        {"ok": True, "status": "running", "conversation_id": "c_…",
+         "plan_title", "plan_steps", "next": "<instruction>", …}
+
+    **Then call ``gemini_deep_research_poll(conversation_id)`` every ~30 s**
+    until it returns ``done: true`` with the final ``text`` (markdown report).
+    Polling is resumable — a failed poll just polls again on the SAME
+    conversation, never restarting the research.
+
+    Set ``wait=True`` to fall back to the legacy one-shot behaviour: block
+    internally (plan → confirm → poll) until the report lands or ``timeout``
+    (default 30 min) elapses. Only use this if your client tolerates very long
+    tool calls.
 
     Account / profile / language / model are **always** read from the unified
-    config (``profile_config``). Run ``deep-research-onboard`` to configure
-    them; this tool intentionally exposes no override args so there is one
-    source of truth.
+    config (``profile_config``). Run ``deep-research-onboard`` to configure them.
 
     Args:
         query: The research question (give detailed context for best plans).
-        poll_interval: Seconds between poll attempts during stage 3 (default
-            30s — matches the Gemini web UI cadence).
-        timeout: Hard cap on the whole run in seconds (default 1800 = 30 min).
-
-    Returns:
-        ``{"ok": True, "done": bool, "text": <markdown report>, "title",
-        "conversation_id", "plan_title", "plan_steps", "elapsed_secs",
-        "stage_secs", "polls", "timed_out", ...}`` on success;
-        ``{"ok": False, "error": str, "stage": "plan"|"confirm", ...}`` if a
-        stage fails; ``{"error": str}`` on transport-level failure.
+        wait: Block until done (legacy). Default False = return running handle.
+        poll_interval: Seconds between polls when ``wait=True`` (default 30s).
+        timeout: Hard cap in seconds when ``wait=True`` (default 1800 = 30 min).
     """
     cfg = _get_gemini_config()
     try:
-        return get_gemini_client().full_deep_research(
-            query=query,
-            poll_interval=poll_interval,
-            timeout=timeout,
-            **cfg,
+        client = get_gemini_client()
+        if wait:
+            return client.full_deep_research(
+                query=query,
+                poll_interval=poll_interval,
+                timeout=timeout,
+                **cfg,
+            )
+        result = client.start_deep_research(query=query, **cfg)
+        if result.get("ok"):
+            cid = result.get("conversation_id")
+            result["next"] = (
+                f"Research is running. Call gemini_deep_research_poll("
+                f"conversation_id='{cid}') every ~30s until done=true; the "
+                f"final report arrives in the 'text' field."
+            )
+        return result
+    except Exception as e:
+        return {"error": f"{type(e).__name__}: {e}"}
+
+
+@mcp.tool()
+def gemini_deep_research_poll(conversation_id: str) -> dict:
+    """Check on a Deep Research run started by ``gemini_deep_research``.
+
+    Does ONE quick status read (no blocking) and returns::
+
+        {"ok": True, "done": bool, "in_progress": bool,
+         "conversation_id": str, "title": str|None,
+         "text": str|None,      # final markdown report once done=true
+         "reason": str|None}    # set if Gemini stopped early (cap/policy)
+
+    Call this repeatedly (~every 30 s) after ``gemini_deep_research`` until
+    ``done`` is true. Safe to call as many times as needed — it never restarts
+    the research; it only reports current state. ``in_progress: true`` means
+    keep polling; a ``reason`` with ``in_progress: false`` means Gemini stopped.
+
+    Account / profile are read from the unified config (``profile_config``).
+    """
+    cfg = _get_gemini_config()
+    try:
+        return get_gemini_client().poll_once(
+            conversation_id=conversation_id,
+            authuser=cfg["authuser"],
+            chrome_profile=cfg["chrome_profile"],
+            language=cfg["language"],
         )
     except Exception as e:
         return {"error": f"{type(e).__name__}: {e}"}

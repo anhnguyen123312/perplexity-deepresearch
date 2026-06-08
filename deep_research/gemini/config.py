@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .. import cloak
+
 
 GEMINI_BASE = "https://gemini.google.com"
 
@@ -35,14 +37,15 @@ RPCID_READ_CHAT = "hNvQHb"
 RPCID_DR_STATUS = "kwDCne"
 
 
-# curl_cffi impersonation target (matches user's installed Chrome 148)
-IMPERSONATE_TARGET = "chrome146"
-
-CHROME_UA = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/148.0.0.0 Safari/537.36"
-)
+# Fingerprint — derived from the locally installed Chrome via the shared cloak
+# so TLS impersonation == UA == sec-ch-ua (no 146-vs-148 mismatch). Gemini rides
+# the same curl_cffi transport as Perplexity, hence the same aligned set. See
+# deep_research/cloak.py and docs/web-parity-audit/exp.md.
+_CLOAK = cloak.gemini_cloak()
+IMPERSONATE_TARGET = _CLOAK["impersonate"]
+CHROME_UA = _CLOAK["user_agent"]
+SEC_CH_UA = _CLOAK["sec_ch_ua"]
+SEC_CH_UA_PLATFORM = _CLOAK["sec_ch_ua_platform"]
 
 # Default request locale
 DEFAULT_HL = "en"

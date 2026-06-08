@@ -437,3 +437,115 @@ class TestFullDeepResearch:
         assert out["done"] is False
         assert out["timed_out"] is True
         assert out["text"] is None
+
+
+# ---------------------------------------------------------------------- #
+# start_deep_research (non-blocking kick-off) + poll_once (single status)
+# ---------------------------------------------------------------------- #
+
+
+class TestStartDeepResearch:
+    def test_returns_running_handle_without_polling(self, client, monkeypatch):
+        plan = {
+            "ok": True, "conversation_id": "c_plan", "response_id": "r_plan",
+            "candidate_ids": ["rc_choice"], "title": "Topic",
+            "plan_title": "My Plan", "plan_steps": [{"id": "s1"}],
+            "text": "Here's the plan", "chrome_profile": "Default",
+        }
+        confirm = {
+            "ok": True, "conversation_id": "c_run", "response_id": "r_run",
+            "candidate_ids": ["rc_ack"], "chrome_profile": "Default",
+        }
+        submit_mock = MagicMock(side_effect=[plan, confirm])
+        poll_mock = MagicMock()
+        monkeypatch.setattr(client, "submit", submit_mock)
+        monkeypatch.setattr(client, "poll_research", poll_mock)
+
+        out = client.start_deep_research(query="What is X?", authuser=0)
+
+        assert out["ok"] is True
+        assert out["status"] == "running"
+        # Follows the CONFIRM-returned conversation_id (the actual run)
+        assert out["conversation_id"] == "c_run"
+        assert out["choice_id"] == "rc_choice"
+        assert out["plan_title"] == "My Plan"
+        # Exactly two submits (plan + "Start research"); NEVER polls.
+        assert submit_mock.call_count == 2
+        assert submit_mock.call_args_list[1][0][0] == "Start research"
+        poll_mock.assert_not_called()
+
+    def test_plan_failure_short_circuits(self, client, monkeypatch):
+        submit_mock = MagicMock(return_value={"ok": False, "error": "HTTP 500"})
+        monkeypatch.setattr(client, "submit", submit_mock)
+        out = client.start_deep_research(query="Q", authuser=0)
+        assert out["ok"] is False
+        assert out["stage"] == "plan"
+        assert submit_mock.call_count == 1
+
+    def test_confirm_failure_short_circuits(self, client, monkeypatch):
+        plan = {
+            "ok": True, "conversation_id": "c_plan", "response_id": "r_plan",
+            "candidate_ids": ["rc_choice"], "plan_title": "P", "plan_steps": [],
+        }
+        submit_mock = MagicMock(side_effect=[plan, {"ok": False, "error": "HTTP 403"}])
+        monkeypatch.setattr(client, "submit", submit_mock)
+        out = client.start_deep_research(query="Q", authuser=0)
+        assert out["ok"] is False
+        assert out["stage"] == "confirm"
+        assert out["choice_id"] == "rc_choice"
+        assert submit_mock.call_count == 2
+
+
+class TestPollOnce:
+    def test_done_surfaces_report_text(self, client, monkeypatch):
+        monkeypatch.setattr(client, "_read_chat_status", MagicMock(return_value={
+            "done": True, "in_progress": False, "text": "# Final",
+            "title": "T", "rcid": "rc_x", "reason": None,
+        }))
+        out = client.poll_once(conversation_id="c_run", authuser=0)
+        assert out["ok"] is True
+        assert out["done"] is True
+        assert out["text"] == "# Final"
+        assert out["conversation_id"] == "c_run"
+
+    def test_in_progress_keeps_polling(self, client, monkeypatch):
+        monkeypatch.setattr(client, "_read_chat_status", MagicMock(return_value={
+            "done": False, "in_progress": True, "text": None,
+            "title": None, "rcid": None, "reason": None,
+        }))
+        out = client.poll_once(conversation_id="c_run", authuser=0)
+        assert out["done"] is False
+        assert out["in_progress"] is True
+
+    def test_read_error_reported_as_in_progress(self, client, monkeypatch):
+        monkeypatch.setattr(client, "_read_chat_status",
+                            MagicMock(side_effect=RuntimeError("boom")))
+        out = client.poll_once(conversation_id="c_run", authuser=0)
+        # A transient blip must NOT look terminal — keep polling.
+        assert out["ok"] is True
+        assert out["done"] is False
+        assert out["in_progress"] is True
+        assert "boom" in out["reason"]
+
+
+# ---------------------------------------------------------------------- #
+# Fingerprint parity — UA == sec-ch-ua == TLS impersonation target
+# ---------------------------------------------------------------------- #
+
+
+class TestGeminiFingerprintAligned:
+    def test_ua_secchua_impersonate_same_major(self):
+        from deep_research.gemini import config as gm
+
+        ua_major = gm.CHROME_UA.split("Chrome/")[1].split(".")[0]
+        tls_major = gm.IMPERSONATE_TARGET.removeprefix("chrome")
+        assert ua_major == tls_major, (gm.CHROME_UA, gm.IMPERSONATE_TARGET)
+        assert f'v="{ua_major}"' in gm.SEC_CH_UA
+
+    def test_build_headers_send_sec_ch_ua(self, client):
+        from deep_research.gemini import config as gm
+
+        h = client._build_headers(ext_uuid="x", model=None)
+        assert h["sec-ch-ua"] == gm.SEC_CH_UA
+        assert h["sec-ch-ua-mobile"] == "?0"
+        assert h["sec-ch-ua-platform"] == gm.SEC_CH_UA_PLATFORM

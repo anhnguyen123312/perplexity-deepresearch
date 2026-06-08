@@ -510,11 +510,14 @@ class PerplexityClient:
         Returns:
             dict: Response with 'answer', 'citations', 'backend_uuid'
         """
-        # Mode/model mapping (verified against live perplexity.ai web client
-        # 2026-05-11: Pro = copilot/pplx_pro confirmed; deep research now uses
-        # the asi/pplx_asi pair surfaced under "Advanced research" in the UI).
+        # Mode/model mapping — values verified byte-for-byte against live
+        # perplexity.ai web captures: Pro = copilot/pplx_pro (2026-05-11), deep
+        # research = asi/pplx_asi (the "Advanced research" pair, captured_modes
+        # .json entry[0]). NOTE: asi/pplx_asi is the TRUE web value but is tier-
+        # gated — accounts without ASI / Advanced Research credits get a BLOCKED
+        # (insufficient_credits) response (handled in _finalize_chunks).
         mode_mapping = {
-            "deep research": ("copilot", "pplx_alpha"),
+            "deep research": ("asi", "pplx_asi"),
             "pro": ("copilot", "pplx_pro"),
             "reasoning": ("copilot", "r1"),
             "auto": ("concise", "turbo"),

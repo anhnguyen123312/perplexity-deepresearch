@@ -40,6 +40,8 @@ from .config import (
     POLL_INTERVAL_SECS,
     POLL_TIMEOUT_SECS,
     RPCID_READ_CHAT,
+    SEC_CH_UA,
+    SEC_CH_UA_PLATFORM,
     batch_execute_url,
     stream_generate_url,
 )
@@ -250,6 +252,9 @@ class GeminiClient:
             "content-type": "application/x-www-form-urlencoded;charset=UTF-8",
             "origin": "https://gemini.google.com",
             "referer": "https://gemini.google.com/",
+            "sec-ch-ua": SEC_CH_UA,
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": SEC_CH_UA_PLATFORM,
             "x-same-domain": "1",
         }
         if ext_uuid:
@@ -488,6 +493,9 @@ class GeminiClient:
                 "content-type": "application/x-www-form-urlencoded;charset=UTF-8",
                 "origin": "https://gemini.google.com",
                 "referer": "https://gemini.google.com/",
+                "sec-ch-ua": SEC_CH_UA,
+                "sec-ch-ua-mobile": "?0",
+                "sec-ch-ua-platform": SEC_CH_UA_PLATFORM,
                 "x-same-domain": "1",
             }
 
@@ -1115,6 +1123,156 @@ class GeminiClient:
             "chrome_profile": plan.get("chrome_profile"),
             "authuser": authuser,
             "model": model,
+        }
+
+    def start_deep_research(
+        self,
+        query: str,
+        authuser: int,
+        chrome_profile: str | None = None,
+        language: str = DEFAULT_HL,
+        model: str | None = None,
+        confirm_prompt: str = "Start research",
+    ) -> dict[str, Any]:
+        """Kick off Deep Research (stage-1 plan + stage-2 confirm) WITHOUT polling.
+
+        This is the non-blocking half of :meth:`full_deep_research`: it returns
+        in ~30–60 s (two StreamGenerate round-trips) with a lightweight running
+        handle, instead of blocking for the whole 5–15 min run. The caller then
+        drives the wait with repeated :meth:`poll_once` calls — so no single MCP
+        tool call holds open long enough to hit a client timeout, and a failed
+        poll resumes the SAME conversation instead of restarting the research.
+
+        Returns on success::
+
+            {"ok": True, "status": "running", "conversation_id": "c_…",
+             "response_id": "r_…", "choice_id": "rc_…",
+             "plan_title": str|None, "plan_steps": list, "title": str|None,
+             "elapsed_secs": float, "chrome_profile", "authuser", "model"}
+
+        On a stage failure: ``{"ok": False, "error": str, "stage": "plan"|"confirm", …}``.
+        """
+        t_start = time.time()
+
+        plan = self.submit(
+            query,
+            authuser=authuser,
+            chrome_profile=chrome_profile,
+            language=language,
+            deep_research=True,
+            model=model,
+        )
+        if not plan.get("ok"):
+            return {
+                "ok": False,
+                "error": plan.get("error") or "plan stage failed",
+                "stage": "plan",
+                **{k: plan.get(k) for k in ("conversation_id", "response_id",
+                                            "candidate_ids", "text",
+                                            "plan_title", "plan_steps")
+                   if plan.get(k) is not None},
+            }
+        conv_id = plan.get("conversation_id")
+        resp_id = plan.get("response_id")
+        candidates = plan.get("candidate_ids") or []
+        if not (conv_id and resp_id and candidates):
+            return {
+                "ok": False,
+                "error": (
+                    "plan returned no candidate_ids/conversation_id — cannot "
+                    "auto-confirm DR run"
+                ),
+                "stage": "plan",
+                "conversation_id": conv_id,
+                "response_id": resp_id,
+                "candidate_ids": candidates,
+                "text": plan.get("text"),
+                "plan_title": plan.get("plan_title"),
+                "plan_steps": plan.get("plan_steps"),
+            }
+        choice_id = candidates[0]
+
+        confirm = self.submit(
+            confirm_prompt,
+            authuser=authuser,
+            chrome_profile=chrome_profile,
+            language=language,
+            deep_research=True,
+            conversation_id=conv_id,
+            response_id=resp_id,
+            choice_id=choice_id,
+            model=model,
+        )
+        if not confirm.get("ok"):
+            return {
+                "ok": False,
+                "error": confirm.get("error") or "confirm stage failed",
+                "stage": "confirm",
+                "conversation_id": conv_id,
+                "response_id": resp_id,
+                "choice_id": choice_id,
+                "plan_title": plan.get("plan_title"),
+                "plan_steps": plan.get("plan_steps"),
+            }
+        run_conv_id = confirm.get("conversation_id") or conv_id
+
+        return {
+            "ok": True,
+            "status": "running",
+            "conversation_id": run_conv_id,
+            "response_id": resp_id,
+            "choice_id": choice_id,
+            "title": plan.get("title"),
+            "plan_title": plan.get("plan_title"),
+            "plan_steps": plan.get("plan_steps"),
+            "elapsed_secs": round(time.time() - t_start, 2),
+            "chrome_profile": plan.get("chrome_profile"),
+            "authuser": authuser,
+            "model": model,
+        }
+
+    def poll_once(
+        self,
+        conversation_id: str,
+        authuser: int,
+        chrome_profile: str | None = None,
+        language: str = DEFAULT_HL,
+    ) -> dict[str, Any]:
+        """One READ_CHAT status check (NO loop) for agent-driven polling.
+
+        Returns ``{"ok": True, "done": bool, "in_progress": bool,
+        "conversation_id", "rcid", "title", "text", "reason"}``. ``text`` holds
+        the final markdown report once ``done`` is True. Transient read errors
+        are surfaced as ``in_progress`` so the caller keeps polling rather than
+        treating a blip as terminal failure.
+        """
+        try:
+            st = self._read_chat_status(
+                conversation_id=conversation_id,
+                authuser=authuser,
+                chrome_profile=chrome_profile,
+                language=language,
+            )
+        except Exception as e:
+            return {
+                "ok": True,
+                "done": False,
+                "in_progress": True,
+                "conversation_id": conversation_id,
+                "rcid": None,
+                "title": None,
+                "text": None,
+                "reason": f"poll error: {e}",
+            }
+        return {
+            "ok": True,
+            "done": st.get("done", False),
+            "in_progress": st.get("in_progress", False),
+            "conversation_id": conversation_id,
+            "rcid": st.get("rcid"),
+            "title": st.get("title"),
+            "text": st.get("text"),
+            "reason": st.get("reason"),
         }
 
     def refresh_csrf(self, authuser: int, chrome_profile: str | None = None) -> dict[str, Any]:

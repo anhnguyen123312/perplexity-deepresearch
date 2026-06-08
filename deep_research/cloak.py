@@ -243,6 +243,17 @@ def perplexity_cloak() -> dict[str, str]:
     }
 
 
+def gemini_cloak() -> dict[str, str]:
+    """Aligned cloak for the Gemini (curl_cffi) path.
+
+    Gemini rides the same curl_cffi local-Chrome transport as Perplexity, so it
+    shares the identical fingerprint set — UA = ``sec-ch-ua`` = TLS impersonation
+    target, all derived from the locally installed Chrome. This replaces the old
+    hardcoded ``IMPERSONATE_TARGET=chrome146`` + ``UA=Chrome/148`` mismatch.
+    """
+    return perplexity_cloak()
+
+
 def grok_major() -> int:
     """The Chrome major grok must impersonate (follows CloakBrowser's binary)."""
     return cloakbrowser_binary_major() or FALLBACK_CLOAKBROWSER_MAJOR

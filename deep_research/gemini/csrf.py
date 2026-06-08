@@ -18,7 +18,13 @@ from typing import Optional
 from curl_cffi import requests
 
 from .. import profile_config
-from .config import CHROME_UA, IMPERSONATE_TARGET, app_url
+from .config import (
+    CHROME_UA,
+    IMPERSONATE_TARGET,
+    SEC_CH_UA,
+    SEC_CH_UA_PLATFORM,
+    app_url,
+)
 
 
 # Cache lifetime — SNlM0e itself is good for days, but rotating cookies may
@@ -45,7 +51,14 @@ def _fetch_homepage(cookies: dict[str, str], authuser: int) -> str:
     sess = requests.Session(impersonate=IMPERSONATE_TARGET)
     for k, v in cookies.items():
         sess.cookies.set(k, v, domain=".google.com")
-    sess.headers.update({"user-agent": CHROME_UA})
+    sess.headers.update(
+        {
+            "user-agent": CHROME_UA,
+            "sec-ch-ua": SEC_CH_UA,
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": SEC_CH_UA_PLATFORM,
+        }
+    )
     r = sess.get(app_url(authuser), timeout=30)
     if r.status_code != 200:
         raise GeminiCsrfError(
