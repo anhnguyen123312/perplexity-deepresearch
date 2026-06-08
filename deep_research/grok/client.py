@@ -115,6 +115,7 @@ class GrokClient:
             "disabledConnectorIds": [],
             "deviceEnvInfo": DEFAULT_DEVICE_ENV,
             "modeId": mode_id,
+            "linkQuery": False,
         }
 
     @staticmethod

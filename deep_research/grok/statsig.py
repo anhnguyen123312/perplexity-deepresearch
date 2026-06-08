@@ -175,6 +175,18 @@ def _do_capture_statsig_id_via_chrome(
                   timeout=60000)
         page.wait_for_timeout(4000)
 
+        # grok.com pops a "Grok Build" promo modal on load that overlays the
+        # composer — the chat input ([contenteditable]) is absent until it is
+        # dismissed. Esc closes it (verified 2026-06: input count 0 -> 1, statsig
+        # then captures). Works headless too, so this — NOT a Cloudflare
+        # challenge — was the real cause of capture failures.
+        for _ in range(3):
+            try:
+                page.keyboard.press("Escape")
+            except Exception:
+                break
+            page.wait_for_timeout(400)
+
         for sel in ['[contenteditable="true"]', "textarea"]:
             try:
                 box = page.locator(sel).first

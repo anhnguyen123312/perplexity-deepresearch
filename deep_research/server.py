@@ -223,8 +223,9 @@ def grok_search(
 
     Args:
         query: The user prompt.
-        mode: One of "auto", "fast", "expert", "heavy",
-            or "grok-420-computer-use-sa" (Grok 4.3 beta — default).
+        mode: One of "auto" (default), "fast", "expert".
+            ("auto" lets grok pick the best model for your tier — Grok 4.x on
+            SuperGrok. The old "grok-420-computer-use-sa" id was retired by grok.com.)
         include_thinking: If False (default), strip chain-of-thought and tool-
             usage trace tokens (``isThinking == True``) from the answer.
             Set True to see the full reasoning chain (debugging).
@@ -243,11 +244,12 @@ def grok_search(
 
 @mcp.tool()
 def grok_4_3(query: str, include_thinking: bool = False) -> dict:
-    """Shortcut: ask Grok 4.3 (beta) directly.
+    """Shortcut: ask Grok directly via "auto" (best model for your tier).
 
-    Equivalent to ``grok_search(query, mode="grok-420-computer-use-sa")``.
-    Thinking trace is stripped by default; set ``include_thinking=True`` to
-    keep it.
+    Equivalent to ``grok_search(query, mode="auto")``. (The dedicated
+    "Grok 4.3 beta" modeId was retired by grok.com; "auto" routes to the
+    current Grok 4.x.) Thinking trace is stripped by default; set
+    ``include_thinking=True`` to keep it.
     """
     try:
         return get_grok_client().search(

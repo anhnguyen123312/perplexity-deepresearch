@@ -11,14 +11,21 @@ ADD_RESPONSE_TMPL = f"{GROK_BASE}/rest/app-chat/conversations/{{conversation_id}
 LIST_MODELS = f"{GROK_BASE}/rest/models"
 LIST_MODES = f"{GROK_BASE}/rest/modes"
 
-# Mode IDs (verified 2026-05-11 via /rest/modes)
+# Mode IDs. auto/fast/expert verified working 2026-06-09 (live grok.com web).
 MODE_AUTO = "auto"
 MODE_FAST = "fast"
 MODE_EXPERT = "expert"
+# "heavy" is TIER-GATED: it needs a SuperGrok Heavy subscription. On lower tiers
+# grok.com returns 403 {"code":7,"message":"Model is not found"}. Kept in
+# VALID_MODES so Heavy-tier accounts can use it; lower tiers surface the 403.
 MODE_HEAVY = "heavy"
-MODE_GROK_4_3_BETA = "grok-420-computer-use-sa"  # UI: "Grok 4.3 (beta)"
+# UI "Grok 4.3 (beta)" modeId "grok-420-computer-use-sa" was RETIRED by grok.com
+# (~2026-06: the chat endpoint returns 403 {"code":7,"message":"Model is not found"}).
+# "auto" lets the server pick the best model for the account tier (Grok 4.x for
+# SuperGrok) — the closest stand-in. Kept as an alias so callers/imports survive.
+MODE_GROK_4_3_BETA = "auto"
 
-VALID_MODES = {MODE_AUTO, MODE_FAST, MODE_EXPERT, MODE_HEAVY, MODE_GROK_4_3_BETA}
+VALID_MODES = {MODE_AUTO, MODE_FAST, MODE_EXPERT, MODE_HEAVY}
 
 # Default model — server picks the right one based on user tier
 DEFAULT_MODEL_NAME = None  # let server decide
