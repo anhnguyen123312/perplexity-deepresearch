@@ -6,23 +6,57 @@ A powerful MCP server that provides automated browser-based cookie extraction fo
 
 ## 🚀 Quick Start
 
-### Installation
+### Prerequisites
+
+- [`uv`](https://docs.astral.sh/uv/) (recommended) — or `pipx` / `pip`
+- Python 3.12+
+- Google Chrome, signed in to the provider(s) you want — perplexity.ai, grok.com, gemini.google.com
+
+### Install & register with Claude Code (recommended)
+
+The repo is public, so one command installs the `deep-research`, `deep-research-onboard`
+and `deep-research-config` commands (no auth needed):
 
 ```bash
-pip install git+https://github.com/anhnguyen123312/perplexity-deepresearch.git
+uv tool install git+https://github.com/anhnguyen123312/perplexity-deepresearch.git
 ```
 
-### Claude Desktop Setup
+Register the server with Claude Code, then pick the Chrome profile to read cookies from:
 
-Add to your Claude Desktop config:
-- **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
-- **Linux**: `~/.config/Claude/claude_desktop_config.json`
-- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+```bash
+claude mcp add -s user deep-research -- deep-research   # add the MCP server (user scope)
+deep-research-onboard                                   # choose ONE Chrome profile per provider
+```
+
+Start Claude Code — the `perplexity_*`, `grok_*` and `gemini_*` tools are now available.
+
+### Update to a new release
+
+```bash
+uv tool upgrade deep-research          # ← easiest: pulls the latest published release
+```
+
+Then reload the server so the running process picks up the new code: in Claude Code run
+`/mcp` and reconnect **deep-research** (or just restart Claude Code).
+
+To pin / reproduce an exact release instead:
+
+```bash
+uv tool install --force git+https://github.com/anhnguyen123312/perplexity-deepresearch.git@v0.7.0
+```
+
+> `pipx install …` / `pipx upgrade deep-research` work identically. With plain pip:
+> `pip install -U "git+https://github.com/anhnguyen123312/perplexity-deepresearch.git"`.
+
+### Claude Desktop (alternative)
+
+Add to your Claude Desktop config — **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json` ·
+**Linux**: `~/.config/Claude/claude_desktop_config.json` · **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`:
 
 ```json
 {
   "mcpServers": {
-    "perplexity": {
+    "deep-research": {
       "command": "deep-research"
     }
   }
