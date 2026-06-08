@@ -79,7 +79,6 @@
       "source": "default",
       "always_search_override": false,
       "override_no_search": false,
-      "client_search_results_cache_key": "104d688c-0045-4f26-b941-80e06680c916",
       "should_ask_for_mcp_tool_confirmation": true,
       "browser_agent_allow_once_from_toggle": false,
       "force_enable_browser_agent": false,

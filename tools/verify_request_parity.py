@@ -48,7 +48,7 @@ _AUTO = {"host", "content-length", "accept-encoding", "connection",
 _FORBIDDEN_NAV = {"sec-fetch-user", "upgrade-insecure-requests", "cache-control", "dnt"}
 _DYNAMIC_PARAMS = {
     "frontend_uuid", "frontend_context_uuid", "rum_session_id",
-    "client_search_results_cache_key", "time_from_first_type", "timezone",
+    "time_from_first_type", "timezone",
     "dsl_query", "query_str", "language", "sources", "mode", "model_preference",
 }
 

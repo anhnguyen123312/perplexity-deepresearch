@@ -481,7 +481,9 @@ class PerplexityClient:
             "source": "default",
             "always_search_override": False,
             "override_no_search": False,
-            "client_search_results_cache_key": frontend_uuid,
+            # NOTE: client_search_results_cache_key was dropped by the perplexity.ai
+            # web app (absent from live captures 2026-06-09, present 2026-05-11) —
+            # removed to keep the body byte-identical to the current web client.
             "should_ask_for_mcp_tool_confirmation": True,
             "browser_agent_allow_once_from_toggle": False,
             "force_enable_browser_agent": False,

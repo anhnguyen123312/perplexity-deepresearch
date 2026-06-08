@@ -220,7 +220,7 @@ def test_body_params_key_set_matches_web(capture, our_body):
 def test_static_param_values_match(capture, our_body):
     dynamic = {
         "frontend_uuid", "frontend_context_uuid", "rum_session_id",
-        "client_search_results_cache_key", "time_from_first_type", "timezone",
+        "time_from_first_type", "timezone",
         "dsl_query", "query_str", "language", "sources", "mode", "model_preference",
     }
     web = capture["post_data"]["params"]

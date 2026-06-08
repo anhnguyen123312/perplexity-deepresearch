@@ -51,3 +51,20 @@ supported_features byte-identical; version=2.18. mode "pro" = (copilot, pplx_pro
 - tools/capture_perplexity_full_headers.py — capture all_headers() (đã redact secret ở output json).
 - tools/verify_request_parity.py — wire-level intercept harness (exit0=PARITY OK).
 - tests/test_request_parity.py — 8 test (wire-level header parity + None-suppression + body). 292 passed.
+
+## VERIFIED (2026-06-09) — real Deep Research captured via UI, byte-exact
+Captured the genuine "Deep research" UI button (tools/capture_deep_research.py,
+clicking the mode menu — confirmed "Deep research" and "Computer" are DISTINCT
+options) on a freshly logged-in account (query_source="home", NOT "computer"):
+  → mode="copilot", model_preference="pplx_alpha"  ✅ EXACTLY our MCP mapping.
+asi/pplx_asi = the "Computer" menu item (Comet) — confirmed separate.
+
+Body now byte-identical: removed `client_search_results_cache_key` — the current
+web app (live 2026-06-09, both Deep Research AND Search) NO LONGER sends it (34
+params); the 2026-05-11 capture had it (35). Our payload (34) == web (34), 0 diff.
+Live-verified all 4 perplexity tools on the new account (deep_research 27.9s, 10
+citations). Fixture + dynamic sets updated; 292 passed.
+
+Cookie lesson: capture must use the SAME profile/cookies the MCP uses
+(`get_cookies()` config store), NOT the stale legacy cookies.json (different
+account). After re-login, invalidate config profiles → get_cookies() re-harvests.
