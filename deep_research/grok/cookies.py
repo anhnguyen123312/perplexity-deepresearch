@@ -209,6 +209,15 @@ def get_grok_cookies_cached() -> dict[str, str]:
         entry = profile_config.get_profile_entry(profile_config.PROVIDER_GROK, chosen)
         if entry is not None and not profile_config.is_expired(entry):
             return entry["cookies"]
+        # Headless/server mode (GROK_PROXY set): there is NO Chrome to re-harvest
+        # from. The cache entry's `expires_at` tracks the shortest cookie
+        # (__cf_bm, ~30 min), but the `sso` login lasts months — so reuse the
+        # stored login cookies even when the entry looks "expired". CloakBrowser
+        # re-earns a fresh cf_clearance on the next 401/403 capture anyway.
+        from .config import grok_proxy_url
+
+        if entry is not None and grok_proxy_url():
+            return entry["cookies"]
     else:
         found = profile_config.get_first_valid(
             profile_config.PROVIDER_GROK,
