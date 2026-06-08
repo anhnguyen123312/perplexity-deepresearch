@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+from .. import cloak
+
 
 GROK_BASE = "https://grok.com"
 CONVERSATIONS_NEW = f"{GROK_BASE}/rest/app-chat/conversations/new"
@@ -21,24 +23,16 @@ VALID_MODES = {MODE_AUTO, MODE_FAST, MODE_EXPERT, MODE_HEAVY, MODE_GROK_4_3_BETA
 # Default model — server picks the right one based on user tier
 DEFAULT_MODEL_NAME = None  # let server decide
 
-# rnet emulation target — must match the Chrome major that CloakBrowser's
-# binary reports via ``navigator.userAgent``. CloakBrowser 0.3.28 ships
-# Chromium 146 (per the README), but the wrapper spoofs ``Chrome/145.0.0.0``
-# in the UA — and ``cf_clearance`` is bound to that exact UA + the TLS
-# fingerprint of the binary's BoringSSL build. Use rnet's Chrome145
-# emulation so the replayed TLS handshake matches what Cloudflare expects.
-IMPERSONATE_TARGET = "Chrome145"
-
-# Cloak's actual emitted UA — see ``ua_test`` script in docs/grok-cloakbrowser/exp.md.
-# Pinned to Chrome 145 because cf_clearance is UA-bound (any 145↔146 drift
-# triggers the "Just a moment..." interstitial on replay).
-CHROME_UA = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/145.0.0.0 Safari/537.36"
-)
-
-SEC_CH_UA = '"Not.A;Brand";v="99", "Chrome";v="145", "Chromium";v="145"'
+# The grok hot path replays a ``cf_clearance`` that CloakBrowser earned, so the
+# impersonation must follow CloakBrowser's *bundled Chromium* major — NOT the
+# user's local Chrome. ``cf_clearance`` is bound to the exact UA + TLS that
+# solved the challenge; even a 1-major drift triggers the "Just a moment..."
+# interstitial on replay. ``cloak.grok_major()`` reads the binary version at
+# runtime (falling back to 145) so this self-corrects when CloakBrowser updates.
+GROK_MAJOR = cloak.grok_major()
+IMPERSONATE_TARGET = f"Chrome{GROK_MAJOR}"
+CHROME_UA = cloak.build_ua(GROK_MAJOR)
+SEC_CH_UA = cloak.build_sec_ch_ua(GROK_MAJOR)
 
 # Where we cache the captured x-statsig-id (path+method bound, deterministic)
 def get_state_dir() -> Path:

@@ -21,6 +21,8 @@ on a 403 anti-bot response. Users can force-refresh via
 
 from __future__ import annotations
 
+import os
+import sys
 import time
 
 from .. import profile_config
@@ -56,10 +58,45 @@ def store_statsig_id(path: str, method: str, statsig_id: str) -> None:
     )
 
 
+def _capture_profile_name() -> str:
+    """Chrome profile key the fresh ``cf_clearance``/statsig must be saved under.
+
+    Must match the profile :func:`~deep_research.grok.cookies.get_grok_cookies_cached`
+    reads back, otherwise the self-heal retry never sees the cookies CloakBrowser
+    just earned. Order: ``CHROME_PROFILE`` env → onboarded grok profile → legacy
+    ``CHROME_PROFILE_USED_GROK`` → ``"Default"``.
+    """
+    return (
+        os.environ.get("CHROME_PROFILE")
+        or profile_config.get_chosen_profile(profile_config.PROVIDER_GROK)
+        or os.environ.get("CHROME_PROFILE_USED_GROK")
+        or "Default"
+    )
+
+
+def _default_headless() -> bool:
+    """Whether to drive CloakBrowser headless by default.
+
+    Headful is needed to auto-clear Cloudflare's managed challenge (benchmark:
+    ~50% headless vs ~83% headful) but requires a display. ``GROK_STATSIG_HEADLESS``
+    (``"1"``/``"0"``) forces it; otherwise fall back to headless on a Linux box
+    with no ``$DISPLAY``/``$WAYLAND_DISPLAY`` (headless server / CI) where a
+    visible window cannot open.
+    """
+    env = os.environ.get("GROK_STATSIG_HEADLESS")
+    if env is not None:
+        return env.strip() == "1"
+    if sys.platform.startswith("linux") and not (
+        os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")
+    ):
+        return True
+    return False
+
+
 def capture_statsig_id_via_chrome(
     target_path: str = "/rest/app-chat/conversations/new",
     method: str = "POST",
-    headless: bool = True,
+    headless: bool | None = None,
     timeout_secs: int = 90,
 ) -> str:
     """Capture x-statsig-id by driving CloakBrowser (stealth Chromium 146).
@@ -69,12 +106,22 @@ def capture_statsig_id_via_chrome(
     input). It clears Cloudflare's managed challenge on grok.com where
     Patchright + the user's local Chrome started returning 403 in 2026-Q2.
 
+    ``headless`` defaults to :func:`_default_headless` (headful on a desktop;
+    headless on a Linux box with no display). Cloudflare's managed challenge
+    does NOT reliably auto-clear in headless mode (benchmark: CloakBrowser ~50%
+    headless vs ~83% headful), so a brief visible window per capture is the
+    deliberate tradeoff for reliability (see docs/grok-cf-bypass/research.md
+    gotcha #3); set ``GROK_STATSIG_HEADLESS=1`` to force headless.
+
     Runs in a worker thread so it stays usable from code paths that already
     have a running asyncio loop (e.g. the FastMCP tool handler). Sync
     Playwright refuses to run when ``asyncio.get_running_loop()`` returns a
     live loop, and worker threads spawned from a loop do not inherit it.
     """
     import concurrent.futures
+
+    if headless is None:
+        headless = _default_headless()
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
         return pool.submit(
@@ -92,15 +139,12 @@ def _do_capture_statsig_id_via_chrome(
     headless: bool,
     timeout_secs: int,
 ) -> str:
-    import os
     import tempfile
 
     from cloakbrowser import launch_persistent_context
 
-    from .. import profile_config
-
     raw_cookies = get_grok_cookies()
-    profile_name = os.environ.get("CHROME_PROFILE_USED_GROK") or "Default"
+    profile_name = _capture_profile_name()
     cookies = [
         {"name": k, "value": v, "domain": ".grok.com",
          "path": "/", "secure": True, "httpOnly": False, "sameSite": "Lax"}

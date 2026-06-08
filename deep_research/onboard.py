@@ -209,6 +209,9 @@ def _probe_gemini_accounts(
 
 def _save_cookies(provider: str, profile_name: str, cookies: dict) -> None:
     profile_config.save_profile_entry(provider, profile_name, cookies)
+    # Pin this profile as the provider's default so the MCP server reads cookies
+    # from THIS profile only on later runs (no full Chrome-profile scan).
+    profile_config.set_chosen_profile(provider, profile_name)
 
 
 def _run(argv: Iterable[str]) -> int:
@@ -258,6 +261,15 @@ def _run(argv: Iterable[str]) -> int:
     for prov in ("perplexity", "grok", "gemini"):
         mark = "✓" if harvested[prov] else "✗ (profile not signed in)"
         print(f"  {prov:<11} {mark}")
+
+    saved = [p for p in ("perplexity", "grok", "gemini") if harvested[p]]
+    if saved:
+        print()
+        print(
+            f"→ Default Chrome profile for {', '.join(saved)}: "
+            f"{chosen.dir_name} ({chosen.display_name}). The MCP server will read "
+            f"cookies from this profile only — no full scan."
+        )
 
     chosen_authuser: int | None = None
     chosen_email: str | None = None

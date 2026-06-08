@@ -333,6 +333,23 @@ def clear_provider_settings(
     save_config(config, path)
 
 
+def get_chosen_profile(provider: str, path: Optional[Path] = None) -> Optional[str]:
+    """Return the Chrome profile the user onboarded for ``provider`` (or None).
+
+    When set, the runtime reads cookies from THIS profile only instead of
+    scanning every Chrome profile. Written by ``deep-research-onboard`` (or the
+    first-run auto-pick when exactly one profile is signed in).
+    """
+    return get_provider_settings(provider, path).get("chrome_profile")
+
+
+def set_chosen_profile(
+    provider: str, chrome_profile: str, path: Optional[Path] = None
+) -> None:
+    """Persist the chosen Chrome profile for ``provider``."""
+    set_provider_settings(provider, {"chrome_profile": chrome_profile}, path)
+
+
 def get_first_valid(
     provider: str,
     preferred_order: Optional[list[str]] = None,

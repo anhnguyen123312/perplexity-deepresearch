@@ -7,6 +7,7 @@ shape, persist them to disk, and retrieve them with caching and expiry detection
 
 import hashlib
 import json
+import logging
 import os
 import sqlite3
 import sys
@@ -32,6 +33,12 @@ from .config import (
 )
 from . import profile_config
 from .exceptions import CookieExtractionError
+
+logger = logging.getLogger("perplexity-deep-research")
+
+# Profile-selection notes already emitted this process (so the onboarding nudge
+# prints once, not on every cold/ambiguous run).
+_NOTED_PROFILES: set[tuple[str, str, str]] = set()
 
 
 def _chrome_user_data_dirs() -> list[Path]:
@@ -649,56 +656,148 @@ def _preferred_profile_order() -> list[str]:
     return [p.name for p in list_chrome_profiles_ordered()]
 
 
-def get_cookies() -> dict:
+def _note_active_profile(provider: str, name: str, kind: str) -> None:
+    """Log a one-line note at profile-SELECTION moments (onboarding clarity).
+
+    ``kind`` ∈ {"remembered", "temporary"}; de-duplicated per process so the
+    nudge prints once, not on every cold call. Routed through ``logging`` (the
+    server's stderr log channel) — never stdout (the MCP protocol channel).
+    Stays silent for the configured / cached happy path.
     """
-    Get cookies (cached or fresh) via the unified config store.
+    key = (provider, name, kind)
+    if key in _NOTED_PROFILES:
+        return
+    _NOTED_PROFILES.add(key)
+    if kind == "remembered":
+        logger.info(
+            "%s: only one signed-in Chrome profile (%r) — selected and saved as "
+            "default. Run `deep-research-onboard` to change.",
+            provider,
+            name,
+        )
+    elif kind == "temporary":
+        logger.warning(
+            "%s: multiple Chrome profiles found — using %r for now. Run "
+            "`deep-research-onboard` to pick explicitly.",
+            provider,
+            name,
+        )
 
-    Behavior:
-      1. Ask :mod:`profile_config` for the first non-expired perplexity entry
-         (preferring the active Chrome profile order).
-      2. On miss/expiry, run :func:`extract_cookies_all_profiles` to harvest
-         every signed-in profile, persist each one with the per-provider
-         expiry, then return the entry matching the preferred profile (or
-         the first stored entry).
-      3. On total miss (no profile yielded cookies), fall through to the
-         legacy single-profile path so the user gets the same diagnostic
-         error as before.
 
-    Returns:
-        dict: Canonical cookie dict with session_token and optional csrf_token
+def _harvest_perplexity_profile(profile_dir: Path) -> dict | None:
+    """Normalized Perplexity cookies from ONE profile, or None if not signed in.
+
+    Propagates ``OperationalError`` (Chrome DB lock) so the caller can fall back
+    to the quit/relaunch path.
+    """
+    db = _profile_cookie_db(profile_dir)
+    if db is None:
+        return None
+    raw = _extract_one_profile(str(db.resolve()), None)  # may raise OperationalError
+    if not _has_perplexity_session(raw):
+        return None
+    try:
+        return normalize_cookies(raw)
+    except CookieExtractionError:
+        return None
+
+
+def _resolve_perplexity_profile(chosen: str | None) -> tuple[str, dict]:
+    """Extract Perplexity cookies from a SINGLE Chrome profile (no scan-all).
+
+    ``chosen`` (onboarded value / ``CHROME_PROFILE`` env) → read that profile
+    only. When unset, auto-pick the first signed-in profile: remember it if it is
+    the only profile on disk, otherwise use it once with a warning to onboard.
+
+    Raises ``CookieExtractionError`` when the chosen profile is missing / not
+    signed in, or when no profile is signed in to perplexity.ai.
+    """
+    if sys.platform == "win32":
+        # rookiepy merges every profile and cannot split them → synthetic Default.
+        raw = _extract_cookies_windows_rookiepy("perplexity.ai")
+        return "Default", normalize_cookies(raw)
+
+    all_dirs = list_chrome_profile_dirs()
+    if not all_dirs:
+        # Nothing on disk → keychain/relaunch diagnostic path (Default).
+        return (
+            os.environ.get("CHROME_PROFILE_USED") or "Default",
+            extract_cookies_with_relaunch(),
+        )
+
+    if chosen:
+        target = next((p for p in all_dirs if p.name == chosen), None)
+        if target is None:
+            raise CookieExtractionError(
+                f"Configured Chrome profile {chosen!r} not found. Available: "
+                f"{[p.name for p in all_dirs]}. Re-run `deep-research-onboard`."
+            )
+        norm = _harvest_perplexity_profile(target)
+        if norm is None:
+            raise CookieExtractionError(
+                f"Chrome profile {chosen!r} is not signed in to perplexity.ai. "
+                f"Sign in in Chrome, or re-run `deep-research-onboard`."
+            )
+        return chosen, norm
+
+    for profile_dir in list_chrome_profiles_ordered():
+        norm = _harvest_perplexity_profile(profile_dir)
+        if norm is not None:
+            if len(all_dirs) == 1:
+                profile_config.set_chosen_profile(
+                    profile_config.PROVIDER_PERPLEXITY, profile_dir.name
+                )
+                _note_active_profile("perplexity", profile_dir.name, "remembered")
+            else:
+                _note_active_profile("perplexity", profile_dir.name, "temporary")
+            return profile_dir.name, norm
+
+    raise CookieExtractionError(
+        "No Chrome profile is signed in to perplexity.ai. Sign in in Chrome, "
+        "then run `deep-research-onboard`."
+    )
+
+
+def get_cookies() -> dict:
+    """Return Perplexity cookies from the user's chosen Chrome profile.
+
+    Reads from a SINGLE profile — the one onboarded via ``deep-research-onboard``
+    (or ``CHROME_PROFILE``) — instead of scanning every profile. On a fresh
+    machine with exactly one signed-in profile it auto-picks and remembers it;
+    with several it uses the first signed-in one once and warns the user to
+    onboard. Cached entries are reused until they expire.
 
     Raises:
-        CookieExtractionError: If cookie extraction fails
+        CookieExtractionError: If no usable profile is signed in.
     """
-    preferred = _preferred_profile_order()
-    found = profile_config.get_first_valid(
-        profile_config.PROVIDER_PERPLEXITY, preferred_order=preferred
+    chosen = os.environ.get("CHROME_PROFILE") or profile_config.get_chosen_profile(
+        profile_config.PROVIDER_PERPLEXITY
     )
-    if found is not None:
-        return found[1]["cookies"]
 
-    # No valid cache — try to harvest every signed-in profile in one pass.
+    if chosen:
+        # Pinned to one profile — only ITS own cache counts; never fall back to
+        # a different profile's cookies.
+        entry = profile_config.get_profile_entry(
+            profile_config.PROVIDER_PERPLEXITY, chosen
+        )
+        if entry is not None and not profile_config.is_expired(entry):
+            return entry["cookies"]
+    else:
+        found = profile_config.get_first_valid(
+            profile_config.PROVIDER_PERPLEXITY,
+            preferred_order=_preferred_profile_order(),
+        )
+        if found is not None:
+            return found[1]["cookies"]
+
     try:
-        harvested = extract_cookies_all_profiles()
+        name, normalized = _resolve_perplexity_profile(chosen)
     except OperationalError:
-        harvested = []
+        # Chrome is holding the cookie DB lock → quit/relaunch (keychain-aware).
+        normalized = extract_cookies_with_relaunch()
+        name = chosen or os.environ.get("CHROME_PROFILE_USED") or "Default"
 
-    if harvested:
-        for chrome_profile, normalized in harvested:
-            profile_config.save_profile_entry(
-                profile_config.PROVIDER_PERPLEXITY, chrome_profile, normalized
-            )
-        harvested_map = dict(harvested)
-        for chrome_profile in preferred:
-            if chrome_profile in harvested_map:
-                return harvested_map[chrome_profile]
-        return harvested[0][1]
-
-    # Multi-profile harvest empty — fall back to the single-profile relaunch
-    # path so the user still gets keychain / Chrome-quit prompts.
-    fresh = extract_cookies_with_relaunch()
-    chrome_profile = os.environ.get("CHROME_PROFILE_USED") or "Default"
     profile_config.save_profile_entry(
-        profile_config.PROVIDER_PERPLEXITY, chrome_profile, fresh
+        profile_config.PROVIDER_PERPLEXITY, name, normalized
     )
-    return fresh
+    return normalized

@@ -27,6 +27,14 @@ from deep_research.exceptions import (
 
 
 # Test fixtures
+@pytest.fixture(autouse=True)
+def _isolate_config(tmp_path, monkeypatch):
+    """Keep _refresh_cookies' config-store invalidation off the real user config."""
+    monkeypatch.setenv("PERPLEXITY_CONFIG_FILE", str(tmp_path / "config.json"))
+    monkeypatch.setenv("PERPLEXITY_COOKIES_FILE", str(tmp_path / "cookies.json"))
+    monkeypatch.delenv("CHROME_PROFILE", raising=False)
+
+
 @pytest.fixture
 def mock_cookies():
     """Return test cookies with session_token_name."""
@@ -113,7 +121,9 @@ class TestClientUsesChromImpersonation:
 
             mock_session.assert_called_once()
             call_kwargs = mock_session.call_args[1]
-            assert call_kwargs["impersonate"] == "chrome"
+            # impersonate is now a cloak-aligned target (e.g. "chrome146")
+            # picked to match the local Chrome, not the bare "chrome" alias.
+            assert call_kwargs["impersonate"].startswith("chrome")
 
 
 class TestClientUsesDefaultHeaders:
@@ -136,8 +146,13 @@ class TestClientUsesDefaultHeaders:
             PerplexityClient()
 
             call_kwargs = mock_session.call_args[1]
-            assert len(call_kwargs["headers"]) == len(DEFAULT_HEADERS)
-            assert call_kwargs["headers"] == DEFAULT_HEADERS
+            headers = call_kwargs["headers"]
+            # Header COUNT is preserved (cloak overrides existing keys in place);
+            # user-agent / sec-ch-ua are now dynamic, aligned to the chosen
+            # impersonation target instead of the static Chrome/130 placeholder.
+            assert len(headers) == len(DEFAULT_HEADERS)
+            assert "Chrome/" in headers["user-agent"]
+            assert headers["sec-ch-ua-platform"] in ('"macOS"', '"Windows"', '"Linux"')
 
 
 class TestAutoRefreshOn401:
@@ -154,11 +169,6 @@ class TestAutoRefreshOn401:
                 return_value={"test": "cookie"},
             ),
             patch("deep_research.perplexity.client.requests.Session") as mock_session,
-            patch(
-                "deep_research.perplexity.client.extract_cookies_with_relaunch",
-                return_value=mock_cookies,
-            ),
-            patch("deep_research.perplexity.client.save_cookies"),
             patch("deep_research.perplexity.client.time.sleep"),
         ):
             # First call returns 401, second returns 200
@@ -503,11 +513,6 @@ class TestErrorHandling:
                 return_value={"test": "cookie"},
             ),
             patch("deep_research.perplexity.client.requests.Session") as mock_session,
-            patch(
-                "deep_research.perplexity.client.extract_cookies_with_relaunch",
-                return_value=mock_cookies,
-            ),
-            patch("deep_research.perplexity.client.save_cookies"),
             patch("deep_research.perplexity.client.time.sleep"),
         ):
             mock_response = MagicMock()

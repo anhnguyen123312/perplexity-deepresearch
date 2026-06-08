@@ -13,6 +13,8 @@ from uuid import uuid4
 
 from curl_cffi import requests
 
+from .. import cloak, profile_config
+
 import logging
 import sys
 
@@ -77,9 +79,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("perplexity-deep-research")
 from ..cookies import (
-    extract_cookies_with_relaunch,
     get_cookies,
-    save_cookies,
     to_http_cookies,
 )
 from ..exceptions import (
@@ -116,10 +116,19 @@ class PerplexityClient:
             requests.Session: Configured session with headers, cookies, impersonation
         """
         http_cookies = to_http_cookies(cookies)
+        # Align UA + sec-ch-ua + TLS impersonation to the LOCAL Chrome so
+        # Cloudflare's JA3/JA4-vs-UA cross-check stays consistent (the cloak
+        # module picks the nearest curl_cffi target and a matching UA — fixes
+        # the old hardcoded Chrome/130 header vs chrome146 TLS mismatch).
+        c = cloak.perplexity_cloak()
+        headers = DEFAULT_HEADERS.copy()  # 20 Chrome-like headers
+        headers["user-agent"] = c["user_agent"]
+        headers["sec-ch-ua"] = c["sec_ch_ua"]
+        headers["sec-ch-ua-platform"] = c["sec_ch_ua_platform"]
         session = requests.Session(
-            headers=DEFAULT_HEADERS.copy(),  # 20 Chrome-like headers
+            headers=headers,
             cookies=http_cookies,
-            impersonate="chrome",
+            impersonate=c["impersonate"],
         )
         return session
 
@@ -128,9 +137,20 @@ class PerplexityClient:
         time.sleep(random.uniform(1.0, 3.0))
 
     def _refresh_cookies(self):
-        """Re-extract cookies from Chrome and recreate session."""
-        fresh_cookies = extract_cookies_with_relaunch()
-        save_cookies(fresh_cookies)
+        """Re-read cookies for the configured Chrome profile and rebuild the session.
+
+        Expires the stored perplexity entries first so ``get_cookies`` re-extracts
+        from Chrome (the onboarded / chosen profile, or auto-pick) instead of
+        returning the cached set — keeping the refresh on the SAME profile the
+        client reads from, and persisting through the unified config store
+        (rather than the legacy single-profile ``cookies.json``).
+        """
+        config = profile_config.load_config()
+        for name in list(
+            config["providers"][profile_config.PROVIDER_PERPLEXITY]["profiles"]
+        ):
+            profile_config.invalidate_profile(profile_config.PROVIDER_PERPLEXITY, name)
+        fresh_cookies = get_cookies()
         self.session = self._create_session(fresh_cookies)
         # Re-bootstrap session after refresh
         self.session.get(ENDPOINT_AUTH_SESSION, timeout=REQUEST_TIMEOUT)
@@ -154,6 +174,23 @@ class PerplexityClient:
         """
         self._add_random_delay()
         response = self.session.request(method, url, timeout=REQUEST_TIMEOUT, **kwargs)
+
+        # Cloudflare challenge is distinct from a plain app 401/403: re-read
+        # cookies once (may surface a fresh cf_clearance the user just cleared
+        # in Chrome), then raise an ACTIONABLE error instead of a misleading
+        # "Authentication failed". Detected via cf-mitigated / cf-ray / 503 /
+        # interstitial markers — never fires on a normal SSE 200 response.
+        if cloak.is_cloudflare_challenge(response.status_code, dict(response.headers)):
+            self._refresh_cookies()
+            self._add_random_delay()
+            response = self.session.request(method, url, timeout=REQUEST_TIMEOUT, **kwargs)
+            if cloak.is_cloudflare_challenge(response.status_code, dict(response.headers)):
+                raise PerplexityError(
+                    "Cloudflare challenge on perplexity.ai could not be cleared by the "
+                    "cloak. Open https://www.perplexity.ai in Chrome to solve it, then "
+                    "retry; if it persists your IP may be flagged — wait a few minutes "
+                    "or switch network."
+                )
 
         # Handle auth errors with retry
         if response.status_code in (401, 403):

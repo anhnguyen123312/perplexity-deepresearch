@@ -29,6 +29,7 @@ from typing import Any
 from rnet import Emulation
 from rnet.blocking import Client as BlockingClient
 
+from .. import cloak
 from .config import (
     CHROME_UA,
     CONVERSATIONS_NEW,
@@ -53,7 +54,11 @@ class GrokClient:
     def _ensure_client(self) -> BlockingClient:
         if self._client is None:
             self._client = BlockingClient(
-                emulation=Emulation.Chrome145,
+                # rnet TLS target follows CloakBrowser's bundled Chromium major
+                # (the browser that earns cf_clearance); nearest-available rnet
+                # Emulation, falling back to the pinned Chrome145.
+                emulation=cloak.get_rnet_emulation(cloak.grok_major())
+                or Emulation.Chrome145,
                 user_agent=CHROME_UA,
                 cookie_store=True,
             )
@@ -79,7 +84,7 @@ class GrokClient:
             "referer": "https://grok.com/",
             "sec-ch-ua": SEC_CH_UA,
             "sec-ch-ua-mobile": "?0",
-            "sec-ch-ua-platform": '"macOS"',
+            "sec-ch-ua-platform": cloak.sec_ch_ua_platform(),
             "x-statsig-id": statsig_id,
             "x-xai-request-id": str(uuid.uuid4()),
             "cookie": cookie_header,
@@ -214,6 +219,23 @@ class GrokClient:
             except Exception as e:
                 self._drop_client_and_invalidate_cache()
                 return {"error": f"rnet request error: {e}"}
+
+            # A Cloudflare managed-challenge (HTML "Just a moment..." / cf-ray)
+            # is NOT grok's JSON anti-bot 403 — it needs a fresh cf_clearance,
+            # which the attempt-1 refresh earns by driving CloakBrowser headful.
+            # Distinguish it so the surfaced error is actionable.
+            if cloak.is_cloudflare_challenge(status_code, {}, text):
+                if attempt == 0:
+                    self._drop_client_and_invalidate_cache()
+                    continue
+                return {
+                    "error": (
+                        "Cloudflare challenge on grok.com that CloakBrowser could "
+                        "not clear. Your IP may be flagged — wait a few minutes or "
+                        "switch network/proxy."
+                    ),
+                    "status": status_code,
+                }
 
             if status_code in (401, 403):
                 # Either Cloudflare invalidated cf_clearance (cookie expired

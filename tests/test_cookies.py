@@ -39,6 +39,7 @@ def isolate_cookies_file(tmp_path, monkeypatch):
     monkeypatch.setenv("PERPLEXITY_COOKIES_FILE", str(test_cookies_file))
     monkeypatch.setenv("PERPLEXITY_CONFIG_FILE", str(test_config_file))
     monkeypatch.delenv("CHROME_PROFILE_USED", raising=False)
+    monkeypatch.delenv("CHROME_PROFILE", raising=False)
     return test_cookies_file
 
 
@@ -564,10 +565,8 @@ class TestGetCookies:
             mock_extract.assert_not_called()
             mock_all.assert_not_called()
 
-    def test_get_cookies_extracts_fresh_via_multi_profile_harvest(
-        self, isolate_cookies_file
-    ):
-        """Cache empty → multi-profile harvest fires and persists every profile."""
+    def test_get_cookies_fresh_uses_single_profile_resolver(self, isolate_cookies_file):
+        """Cache empty → resolve ONE profile (no scan-all); only it is persisted."""
         from deep_research import profile_config
 
         fresh = {
@@ -576,29 +575,29 @@ class TestGetCookies:
         }
         with (
             patch(
-                "deep_research.cookies.extract_cookies_all_profiles",
-                return_value=[("Default", fresh), ("Profile 1", {"session_token": "p1"})],
-            ),
-            patch(
-                "deep_research.cookies._preferred_profile_order",
-                return_value=["Default", "Profile 1"],
-            ),
+                "deep_research.cookies._resolve_perplexity_profile",
+                return_value=("Profile 1", fresh),
+            ) as mock_resolve,
             patch(
                 "deep_research.cookies.extract_cookies_with_relaunch"
             ) as mock_relaunch,
+            patch(
+                "deep_research.cookies.extract_cookies_all_profiles"
+            ) as mock_all,
         ):
             result = get_cookies()
 
             assert result == fresh
+            mock_resolve.assert_called_once()
             mock_relaunch.assert_not_called()
-            # Both profiles got persisted
-            assert profile_config.get_profile_entry("perplexity", "Default")["cookies"] == fresh
-            assert profile_config.get_profile_entry("perplexity", "Profile 1")["cookies"] == {"session_token": "p1"}
+            mock_all.assert_not_called()  # the scan-all path is gone
+            assert (
+                profile_config.get_profile_entry("perplexity", "Profile 1")["cookies"]
+                == fresh
+            )
 
-    def test_get_cookies_falls_through_to_relaunch_when_harvest_empty(
-        self, isolate_cookies_file
-    ):
-        """Harvest empty → relaunch path runs and its result is stored."""
+    def test_get_cookies_db_lock_falls_back_to_relaunch(self, isolate_cookies_file):
+        """Chrome DB lock during resolve → quit/relaunch path runs and persists."""
         from deep_research import profile_config
 
         fresh = {
@@ -607,8 +606,8 @@ class TestGetCookies:
         }
         with (
             patch(
-                "deep_research.cookies.extract_cookies_all_profiles",
-                return_value=[],
+                "deep_research.cookies._resolve_perplexity_profile",
+                side_effect=OperationalError("database is locked"),
             ),
             patch(
                 "deep_research.cookies.extract_cookies_with_relaunch",
@@ -618,17 +617,44 @@ class TestGetCookies:
             result = get_cookies()
 
             assert result == fresh
-            assert profile_config.get_profile_entry("perplexity", "Default")["cookies"] == fresh
+            assert (
+                profile_config.get_profile_entry("perplexity", "Default")["cookies"]
+                == fresh
+            )
+
+    def test_get_cookies_uses_configured_profile(self, isolate_cookies_file):
+        """A configured chrome_profile pins reads to that profile; no scan-all."""
+        from deep_research import profile_config
+
+        profile_config.set_chosen_profile("perplexity", "Profile 2")
+        fresh = {
+            "session_token": "p2_token",
+            "session_token_name": "__Secure-next-auth.session-token",
+        }
+        captured = {}
+
+        def _fake_resolve(chosen):
+            captured["chosen"] = chosen
+            return "Profile 2", fresh
+
+        with (
+            patch("deep_research.cookies._resolve_perplexity_profile", _fake_resolve),
+            patch("deep_research.cookies.extract_cookies_all_profiles") as mock_all,
+        ):
+            result = get_cookies()
+
+        assert result == fresh
+        assert captured["chosen"] == "Profile 2"
+        mock_all.assert_not_called()
 
     def test_get_cookies_extracts_fresh_if_expired(self, isolate_cookies_file):
-        """Expired config-store entry → re-scan via multi-profile harvest."""
+        """Expired config-store entry → single-profile resolve runs again."""
         from deep_research import profile_config
 
         old = {
             "session_token": "old_token",
             "session_token_name": "__Secure-next-auth.session-token",
         }
-        # Save then force-expire the entry
         profile_config.save_profile_entry("perplexity", "Default", old)
         profile_config.invalidate_profile("perplexity", "Default")
 
@@ -636,15 +662,9 @@ class TestGetCookies:
             "session_token": "fresh_token",
             "session_token_name": "__Secure-next-auth.session-token",
         }
-        with (
-            patch(
-                "deep_research.cookies.extract_cookies_all_profiles",
-                return_value=[("Default", fresh)],
-            ),
-            patch(
-                "deep_research.cookies._preferred_profile_order",
-                return_value=["Default"],
-            ),
+        with patch(
+            "deep_research.cookies._resolve_perplexity_profile",
+            return_value=("Default", fresh),
         ):
             result = get_cookies()
 
@@ -652,6 +672,119 @@ class TestGetCookies:
             stored = profile_config.get_profile_entry("perplexity", "Default")
             assert stored["cookies"] == fresh
             assert not profile_config.is_expired(stored)
+
+    def test_get_cookies_chosen_profile_ignores_other_cached(self, isolate_cookies_file):
+        """Pinned profile must NOT fall back to a different profile's valid cache."""
+        from deep_research import profile_config
+
+        # A valid cache exists for "Default", but the user pinned "Profile 5".
+        profile_config.save_profile_entry(
+            "perplexity",
+            "Default",
+            {
+                "session_token": "default_tok",
+                "session_token_name": "__Secure-next-auth.session-token",
+            },
+        )
+        profile_config.set_chosen_profile("perplexity", "Profile 5")
+
+        fresh = {
+            "session_token": "p5",
+            "session_token_name": "__Secure-next-auth.session-token",
+        }
+        with patch(
+            "deep_research.cookies._resolve_perplexity_profile",
+            return_value=("Profile 5", fresh),
+        ) as mock_resolve:
+            result = get_cookies()
+
+        assert result == fresh  # NOT the "Default" cache
+        mock_resolve.assert_called_once()
+
+
+class TestResolvePerplexityProfile:
+    """Single-profile resolver: auto-pick / remember / warn / errors (no scan-all)."""
+
+    @staticmethod
+    def _fake_dir(tmp_path, name):
+        d = tmp_path / name
+        d.mkdir()
+        return d
+
+    def test_single_profile_auto_picked_and_remembered(
+        self, isolate_cookies_file, tmp_path, monkeypatch
+    ):
+        from deep_research import cookies as cm
+        from deep_research import profile_config
+
+        only = self._fake_dir(tmp_path, "Default")
+        fresh = {
+            "session_token": "t",
+            "session_token_name": "__Secure-next-auth.session-token",
+        }
+        monkeypatch.setattr(cm.sys, "platform", "darwin")
+        monkeypatch.setattr(cm, "list_chrome_profile_dirs", lambda: [only])
+        monkeypatch.setattr(cm, "list_chrome_profiles_ordered", lambda: [only])
+        monkeypatch.setattr(cm, "_harvest_perplexity_profile", lambda p: fresh)
+
+        name, cookies = cm._resolve_perplexity_profile(None)
+
+        assert (name, cookies) == ("Default", fresh)
+        assert profile_config.get_chosen_profile("perplexity") == "Default"
+
+    def test_multiple_profiles_warn_and_not_remembered(
+        self, isolate_cookies_file, tmp_path, monkeypatch
+    ):
+        from deep_research import cookies as cm
+        from deep_research import profile_config
+
+        d0 = self._fake_dir(tmp_path, "Default")
+        d1 = self._fake_dir(tmp_path, "Profile 1")
+        fresh = {
+            "session_token": "t",
+            "session_token_name": "__Secure-next-auth.session-token",
+        }
+        monkeypatch.setattr(cm.sys, "platform", "darwin")
+        monkeypatch.setattr(cm, "list_chrome_profile_dirs", lambda: [d0, d1])
+        monkeypatch.setattr(cm, "list_chrome_profiles_ordered", lambda: [d0, d1])
+        monkeypatch.setattr(
+            cm,
+            "_harvest_perplexity_profile",
+            lambda p: fresh if p.name == "Profile 1" else None,
+        )
+
+        name, _ = cm._resolve_perplexity_profile(None)
+
+        assert name == "Profile 1"
+        # Ambiguous → NOT auto-remembered (user should onboard explicitly).
+        assert profile_config.get_chosen_profile("perplexity") is None
+
+    def test_configured_profile_not_signed_in_raises(
+        self, isolate_cookies_file, tmp_path, monkeypatch
+    ):
+        from deep_research import cookies as cm
+
+        d0 = self._fake_dir(tmp_path, "Default")
+        monkeypatch.setattr(cm.sys, "platform", "darwin")
+        monkeypatch.setattr(cm, "list_chrome_profile_dirs", lambda: [d0])
+        monkeypatch.setattr(cm, "_harvest_perplexity_profile", lambda p: None)
+
+        with pytest.raises(CookieExtractionError, match="not signed in"):
+            cm._resolve_perplexity_profile("Default")
+
+    def test_no_profile_signed_in_raises(
+        self, isolate_cookies_file, tmp_path, monkeypatch
+    ):
+        from deep_research import cookies as cm
+
+        d0 = self._fake_dir(tmp_path, "Default")
+        monkeypatch.setattr(cm.sys, "platform", "darwin")
+        monkeypatch.setattr(cm, "list_chrome_profile_dirs", lambda: [d0])
+        monkeypatch.setattr(cm, "list_chrome_profiles_ordered", lambda: [d0])
+        monkeypatch.setattr(cm, "_harvest_perplexity_profile", lambda p: None)
+
+        with pytest.raises(CookieExtractionError, match="No Chrome profile is signed in"):
+            cm._resolve_perplexity_profile(None)
 
 
 class TestDatabaseLockedDetection:
