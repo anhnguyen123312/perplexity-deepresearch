@@ -45,19 +45,12 @@ def test_default_headless_env_override(monkeypatch):
     assert statsig._default_headless() is False
 
 
-def test_default_headless_linux_no_display(monkeypatch):
-    monkeypatch.setattr(statsig.sys, "platform", "linux")
-    monkeypatch.delenv("DISPLAY", raising=False)
-    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+def test_default_headless_is_headless_by_default(monkeypatch):
+    # No GROK_STATSIG_HEADLESS set → headless (hidden window), regardless of OS.
+    monkeypatch.delenv("GROK_STATSIG_HEADLESS", raising=False)
     assert statsig._default_headless() is True
 
 
-def test_default_headless_linux_with_display_is_headful(monkeypatch):
-    monkeypatch.setattr(statsig.sys, "platform", "linux")
-    monkeypatch.setenv("DISPLAY", ":0")
-    assert statsig._default_headless() is False
-
-
-def test_default_headless_desktop_is_headful(monkeypatch):
-    monkeypatch.setattr(statsig.sys, "platform", "darwin")
+def test_default_headless_env_zero_forces_headful(monkeypatch):
+    monkeypatch.setenv("GROK_STATSIG_HEADLESS", "0")
     assert statsig._default_headless() is False

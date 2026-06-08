@@ -22,7 +22,6 @@ on a 403 anti-bot response. Users can force-refresh via
 from __future__ import annotations
 
 import os
-import sys
 import time
 
 from .. import profile_config
@@ -75,22 +74,17 @@ def _capture_profile_name() -> str:
 
 
 def _default_headless() -> bool:
-    """Whether to drive CloakBrowser headless by default.
+    """Drive CloakBrowser headless by default (no visible window).
 
-    Headful is needed to auto-clear Cloudflare's managed challenge (benchmark:
-    ~50% headless vs ~83% headful) but requires a display. ``GROK_STATSIG_HEADLESS``
-    (``"1"``/``"0"``) forces it; otherwise fall back to headless on a Linux box
-    with no ``$DISPLAY``/``$WAYLAND_DISPLAY`` (headless server / CI) where a
-    visible window cannot open.
+    Default ``True`` so a grok call never unexpectedly pops up a browser. The
+    trade-off: Cloudflare's managed challenge clears less reliably headless
+    (benchmark ~50% vs ~83% headful), so set ``GROK_STATSIG_HEADLESS=0`` to
+    force a visible window if statsig / cf_clearance captures keep failing.
     """
     env = os.environ.get("GROK_STATSIG_HEADLESS")
     if env is not None:
         return env.strip() == "1"
-    if sys.platform.startswith("linux") and not (
-        os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")
-    ):
-        return True
-    return False
+    return True
 
 
 def capture_statsig_id_via_chrome(
@@ -106,12 +100,11 @@ def capture_statsig_id_via_chrome(
     input). It clears Cloudflare's managed challenge on grok.com where
     Patchright + the user's local Chrome started returning 403 in 2026-Q2.
 
-    ``headless`` defaults to :func:`_default_headless` (headful on a desktop;
-    headless on a Linux box with no display). Cloudflare's managed challenge
+    ``headless`` defaults to :func:`_default_headless` (headless — no visible
+    window — unless ``GROK_STATSIG_HEADLESS=0``). Cloudflare's managed challenge
     does NOT reliably auto-clear in headless mode (benchmark: CloakBrowser ~50%
-    headless vs ~83% headful), so a brief visible window per capture is the
-    deliberate tradeoff for reliability (see docs/grok-cf-bypass/research.md
-    gotcha #3); set ``GROK_STATSIG_HEADLESS=1`` to force headless.
+    headless vs ~83% headful; see docs/grok-cf-bypass/research.md gotcha #3), so
+    set ``GROK_STATSIG_HEADLESS=0`` to force a visible window if captures fail.
 
     Runs in a worker thread so it stays usable from code paths that already
     have a running asyncio loop (e.g. the FastMCP tool handler). Sync
