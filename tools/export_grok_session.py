@@ -27,13 +27,21 @@ if "sso" not in login:
     sys.exit("ERROR: no `sso` cookie found — sign in to grok.com in Chrome first.")
 
 # Minimal valid config: grok provider, one profile holding the login cookies.
+# `expires_at` is required by profile_config.is_expired(); the sso login lasts
+# ~150 days, so 120 days is a safe re-export reminder window.
 import time
+from datetime import datetime, timezone, timedelta
+expires_at = (datetime.now(timezone.utc) + timedelta(days=120)).isoformat()
 cfg = {
     "providers": {
         pc.PROVIDER_GROK: {
             "chosen": a.profile,
             "profiles": {
-                a.profile: {"cookies": login, "ts": int(time.time())},
+                a.profile: {
+                    "cookies": login,
+                    "ts": int(time.time()),
+                    "expires_at": expires_at,
+                },
             },
             "statsig": {},
         }

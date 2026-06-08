@@ -25,7 +25,7 @@ import os
 import time
 
 from .. import profile_config
-from .cookies import get_grok_cookies
+from .cookies import get_grok_cookies_cached
 
 
 # Effectively "forever" — captured ids are session fingerprints, not
@@ -136,7 +136,10 @@ def _do_capture_statsig_id_via_chrome(
 
     from cloakbrowser import launch_persistent_context
 
-    raw_cookies = get_grok_cookies()
+    # Read login cookies from the config store (NOT live Chrome): on a headless
+    # server there is no Chrome, and the shipped grok_session.json holds the
+    # sso/sso-rw login. The hot path uses the same source, so they stay in sync.
+    raw_cookies = get_grok_cookies_cached()
     profile_name = _capture_profile_name()
     # Inject ONLY the login cookies. Verified through GROK_PROXY: a fresh context
     # with just sso/sso-rw/x-userid lets Cloudflare issue + CloakBrowser solve a
