@@ -116,14 +116,27 @@ def capture_statsig_id_via_chrome(
     if headless is None:
         headless = _default_headless()
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-        return pool.submit(
-            _do_capture_statsig_id_via_chrome,
-            target_path,
-            method,
-            headless,
-            timeout_secs,
-        ).result()
+    # Cloudflare's managed challenge clears probabilistically (~50% headless /
+    # ~83% headful), so a single attempt fails intermittently. Retry a few times
+    # (env GROK_CAPTURE_RETRIES, default 3) before giving up.
+    try:
+        attempts = max(1, int(os.environ.get("GROK_CAPTURE_RETRIES", "3")))
+    except ValueError:
+        attempts = 3
+    last_err: Exception | None = None
+    for _ in range(attempts):
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                return pool.submit(
+                    _do_capture_statsig_id_via_chrome,
+                    target_path,
+                    method,
+                    headless,
+                    timeout_secs,
+                ).result()
+        except Exception as e:  # noqa: BLE001 — retry any capture failure
+            last_err = e
+    raise last_err if last_err else RuntimeError("statsig capture failed")
 
 
 def _do_capture_statsig_id_via_chrome(
