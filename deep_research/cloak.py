@@ -26,6 +26,7 @@ so a flaky probe never breaks a request path.
 from __future__ import annotations
 
 import functools
+import os
 import re
 import subprocess
 import sys
@@ -210,7 +211,15 @@ def _platform_ua_token() -> tuple[str, str]:
 
 
 def build_ua(major: int) -> str:
-    """Chrome desktop UA string for ``major`` on the current OS."""
+    """Chrome desktop UA string for ``major`` on the current OS.
+
+    ``GROK_UA`` env fully overrides it. cf_clearance binds to the EXACT UA
+    (platform included) of the issuing browser, so a server replaying a
+    clearance earned on macOS must send the macOS UA, not its own Linux one.
+    """
+    env = os.environ.get("GROK_UA")
+    if env:
+        return env
     os_token, _ = _platform_ua_token()
     return (
         f"Mozilla/5.0 ({os_token}) AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -224,6 +233,11 @@ def build_sec_ch_ua(major: int) -> str:
 
 
 def sec_ch_ua_platform() -> str:
+    # ``GROK_SEC_CH_UA_PLATFORM`` env override (e.g. '"macOS"') so a server's
+    # sec-ch-ua-platform header matches the host that earned the cf_clearance.
+    env = os.environ.get("GROK_SEC_CH_UA_PLATFORM")
+    if env:
+        return env
     return _platform_ua_token()[1]
 
 
@@ -255,7 +269,17 @@ def gemini_cloak() -> dict[str, str]:
 
 
 def grok_major() -> int:
-    """The Chrome major grok must impersonate (follows CloakBrowser's binary)."""
+    """The Chrome major grok must impersonate (follows CloakBrowser's binary).
+
+    ``GROK_MAJOR`` env pins it explicitly. REQUIRED when the cf_clearance is
+    earned on one host (e.g. local CloakBrowser 145) but replayed by rnet on
+    another (e.g. a server whose CloakBrowser is 146): the cf_clearance is bound
+    to the issuing browser's UA major, so the serving host must claim the SAME
+    major or Cloudflare 403s. Set GROK_MAJOR identically on capture + serve.
+    """
+    env = os.environ.get("GROK_MAJOR")
+    if env and env.strip().isdigit():
+        return int(env.strip())
     return cloakbrowser_binary_major() or FALLBACK_CLOAKBROWSER_MAJOR
 
 

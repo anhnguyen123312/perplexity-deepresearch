@@ -1,6 +1,6 @@
 [project]
 name = "deep-research"
-version = "0.8.7"
+version = "0.8.8"
 description = "Deep Research MCP server: Perplexity + Grok + Gemini under one roof (macOS, Linux & Windows)"
 requires-python = ">=3.12"
 dependencies = [
