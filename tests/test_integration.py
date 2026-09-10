@@ -38,6 +38,7 @@ class TestFullFlow:
             sources=["web"],
             language="en-US",
             follow_up=None,
+            model=None,
         )
 
     @patch("deep_research.server.get_client")

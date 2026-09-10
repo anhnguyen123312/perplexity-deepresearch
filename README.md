@@ -126,7 +126,8 @@ Just follow the on-screen instructions - no complex manual configuration needed.
 
 - 🔄 **Auto-refresh**: Automatically refreshes expired cookies on 401/403 errors.
 - 🔒 **Secure Integration**: Uses macOS Keychain or Linux Secret Service for secure cookie decryption.
-- 🚀 **4 Research Tools**: Access `perplexity_deep_research`, `perplexity_ask`, `perplexity_search`, and `perplexity_follow_up`.
+- 🚀 **Research Tools**: Access `perplexity_deep_research`, `perplexity_ask`, `perplexity_search`, `reason`, and `perplexity_follow_up`.
+- 🧠 **Model picker**: `perplexity_models` lists the models your account may use (read live from perplexity.ai, ~128 today); pass any id as `model=` to override a tool's default, e.g. `model="claude50sonnetthinking"`. The returned `model` field reports what the server actually ran — it silently downgrades models your plan or quota doesn't cover.
 - 💾 **Smart Caching**: 24-hour cookie caching for faster performance.
 - 🎯 **Chrome Impersonation**: Uses TLS fingerprinting to match your browser.
 

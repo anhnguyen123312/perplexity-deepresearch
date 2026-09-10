@@ -18,6 +18,9 @@ API_VERSION = "2.18"
 # Endpoints
 ENDPOINT_AUTH_SESSION = f"{API_BASE_URL}/api/auth/session"
 ENDPOINT_SSE_ASK = f"{API_BASE_URL}/rest/sse/perplexity_ask"
+ENDPOINT_MODELS_CONFIG = (
+    f"{API_BASE_URL}/rest/models/config/v2?version={API_VERSION}&source=default"
+)
 
 # Timeouts (configurable via environment variables)
 REQUEST_TIMEOUT = int(os.environ.get("PERPLEXITY_TIMEOUT", "900"))  # 15 min default

@@ -50,7 +50,10 @@ def get_gemini_client() -> GeminiClient:
 
 @mcp.tool()
 def perplexity_deep_research(
-    query: str, sources: list[str] = ["web"], language: str = "en-US"
+    query: str,
+    sources: list[str] = ["web"],
+    language: str = "en-US",
+    model: str | None = None,
 ) -> dict:
     """
     Perform exhaustive multi-step research on a query.
@@ -70,9 +73,14 @@ def perplexity_deep_research(
             "google_drive"). See ``config.SUPPORTED_SOURCES`` for the full
             list captured on 2026-05-11.
         language: Language code (default: "en-US")
+        model: Optional model_preference overriding this tool's default model,
+            e.g. "claude50sonnetthinking". Call ``perplexity_models`` for the
+            ids this account may use. The server does NOT reject a model the
+            account lacks — it silently downgrades, so check the returned
+            'model' against what you asked for.
 
     Returns:
-        dict: Response with 'answer', 'citations', 'backend_uuid' keys
+        dict: Response with 'answer', 'citations', 'backend_uuid', 'model' keys
               OR {'error': str} on failure
     """
     try:
@@ -83,13 +91,19 @@ def perplexity_deep_research(
             sources=sources,
             language=language,
             follow_up=None,
+            model=model,
         )
     except Exception as e:
         return {"error": str(e)}
 
 
 @mcp.tool()
-def perplexity_ask(query: str, sources: list[str] = ["web"], language: str = "en-US") -> dict:
+def perplexity_ask(
+    query: str,
+    sources: list[str] = ["web"],
+    language: str = "en-US",
+    model: str | None = None,
+) -> dict:
     """
     Ask a question using Perplexity Pro mode.
 
@@ -104,22 +118,37 @@ def perplexity_ask(query: str, sources: list[str] = ["web"], language: str = "en
             "google_drive"). See ``config.SUPPORTED_SOURCES`` for the full
             list captured on 2026-05-11.
         language: Language code (default: "en-US")
+        model: Optional model_preference overriding this tool's default model,
+            e.g. "claude50sonnetthinking". Call ``perplexity_models`` for the
+            ids this account may use. The server does NOT reject a model the
+            account lacks — it silently downgrades, so check the returned
+            'model' against what you asked for.
 
     Returns:
-        dict: Response with 'answer', 'citations', 'backend_uuid' keys
+        dict: Response with 'answer', 'citations', 'backend_uuid', 'model' keys
               OR {'error': str} on failure
     """
     try:
         client = get_client()
         return client.search(
-            query=query, mode="pro", sources=sources, language=language, follow_up=None
+            query=query,
+            mode="pro",
+            sources=sources,
+            language=language,
+            follow_up=None,
+            model=model,
         )
     except Exception as e:
         return {"error": str(e)}
 
 
 @mcp.tool()
-def reason(query: str, sources: list[str] = ["web"], language: str = "en-US") -> dict:
+def reason(
+    query: str,
+    sources: list[str] = ["web"],
+    language: str = "en-US",
+    model: str | None = None,
+) -> dict:
     """
     Reasoning-focused analysis for questions requiring step-by-step thinking.
 
@@ -136,9 +165,14 @@ def reason(query: str, sources: list[str] = ["web"], language: str = "en-US") ->
             "google_drive"). See ``config.SUPPORTED_SOURCES`` for the full
             list captured on 2026-05-11.
         language: Language code (default: "en-US")
+        model: Optional model_preference overriding this tool's default model,
+            e.g. "claude50sonnetthinking". Call ``perplexity_models`` for the
+            ids this account may use. The server does NOT reject a model the
+            account lacks — it silently downgrades, so check the returned
+            'model' against what you asked for.
 
     Returns:
-        dict: Response with 'answer', 'citations', 'backend_uuid' keys
+        dict: Response with 'answer', 'citations', 'backend_uuid', 'model' keys
               OR {'error': str} on failure
     """
     try:
@@ -149,13 +183,19 @@ def reason(query: str, sources: list[str] = ["web"], language: str = "en-US") ->
             sources=sources,
             language=language,
             follow_up=None,
+            model=model,
         )
     except Exception as e:
         return {"error": str(e)}
 
 
 @mcp.tool()
-def perplexity_search(query: str, sources: list[str] = ["web"], language: str = "en-US") -> dict:
+def perplexity_search(
+    query: str,
+    sources: list[str] = ["web"],
+    language: str = "en-US",
+    model: str | None = None,
+) -> dict:
     """
     Perform a quick basic search.
 
@@ -170,15 +210,25 @@ def perplexity_search(query: str, sources: list[str] = ["web"], language: str = 
             "google_drive"). See ``config.SUPPORTED_SOURCES`` for the full
             list captured on 2026-05-11.
         language: Language code (default: "en-US")
+        model: Optional model_preference overriding this tool's default model,
+            e.g. "claude50sonnetthinking". Call ``perplexity_models`` for the
+            ids this account may use. The server does NOT reject a model the
+            account lacks — it silently downgrades, so check the returned
+            'model' against what you asked for.
 
     Returns:
-        dict: Response with 'answer', 'citations', 'backend_uuid' keys
+        dict: Response with 'answer', 'citations', 'backend_uuid', 'model' keys
               OR {'error': str} on failure
     """
     try:
         client = get_client()
         return client.search(
-            query=query, mode="auto", sources=sources, language=language, follow_up=None
+            query=query,
+            mode="auto",
+            sources=sources,
+            language=language,
+            follow_up=None,
+            model=model,
         )
     except Exception as e:
         return {"error": str(e)}
@@ -209,6 +259,36 @@ def perplexity_follow_up(query: str, backend_uuid: str) -> dict:
             language="en-US",
             follow_up=backend_uuid,
         )
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@mcp.tool()
+def perplexity_models(provider: str | None = None) -> dict:
+    """
+    List the Perplexity models this account may pass as ``model``.
+
+    Read live from perplexity.ai's own model config, so it stays correct as
+    models ship. Pass an id from here to the ``model`` argument of
+    ``perplexity_ask`` / ``perplexity_deep_research`` / ``reason`` /
+    ``perplexity_search``.
+
+    Args:
+        provider: Optional filter, e.g. "ANTHROPIC", "OPENAI", "GOOGLE",
+            "XAI", "PERPLEXITY".
+
+    Returns:
+        dict: {'models': {id: {'label', 'mode', 'provider', 'description'}},
+               'count': int} OR {'error': str} on failure
+    """
+    try:
+        catalog = get_client().get_models()
+        if provider:
+            wanted = provider.upper()
+            catalog = {
+                k: v for k, v in catalog.items() if (v.get("provider") or "").upper() == wanted
+            }
+        return {"models": catalog, "count": len(catalog)}
     except Exception as e:
         return {"error": str(e)}
 

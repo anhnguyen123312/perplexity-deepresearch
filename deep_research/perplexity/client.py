@@ -22,6 +22,7 @@ from ..config import (
     API_VERSION,
     DEFAULT_HEADERS,
     ENDPOINT_AUTH_SESSION,
+    ENDPOINT_MODELS_CONFIG,
     ENDPOINT_SSE_ASK,
     MAX_RETRIES,
     REQUEST_TIMEOUT,
@@ -72,6 +73,36 @@ def _local_iana_timezone() -> str:
 
     return "UTC"
 
+def _answer_from_blocks(chunk: dict) -> str | None:
+    """
+    Extract the answer from a schematized ``blocks`` response.
+
+    perplexity.ai is migrating off the legacy ``text`` step list (which carried
+    the prose in a ``step_type: FINAL`` entry) to ``use_schematized_api``
+    blocks, where it lives in the ``ask_text`` block. The legacy field is now
+    absent from most responses, so without this fallback ``_finalize_chunks``
+    raises "No answer found" for answers that did arrive.
+
+    Only a block reporting ``progress == "DONE"`` is complete. Accepting a
+    partial one would satisfy ``_has_final_answer`` mid-stream and cut the
+    async modes (deep research) short of their reconnect loop, returning a
+    truncated answer.
+    """
+    blocks = chunk.get("blocks")
+    if not isinstance(blocks, list):
+        return None
+    for block in blocks:
+        if not isinstance(block, dict) or block.get("intended_usage") != "ask_text":
+            continue
+        markdown = block.get("markdown_block")
+        if not isinstance(markdown, dict) or markdown.get("progress") != "DONE":
+            continue
+        answer = markdown.get("answer")
+        if isinstance(answer, str) and answer:
+            return answer
+    return None
+
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -100,6 +131,7 @@ class PerplexityClient:
 
     def __init__(self):
         """Initialize client with cookies and session bootstrap."""
+        self._models: dict[str, dict] | None = None
         cookies = get_cookies()
         self.session = self._create_session(cookies)
         # Bootstrap session - MUST call this in __init__
@@ -375,6 +407,11 @@ class PerplexityClient:
                     except (json.JSONDecodeError, TypeError, KeyError):
                         pass
 
+                if not content_json.get("answer"):
+                    blocks_answer = _answer_from_blocks(content_json)
+                    if blocks_answer:
+                        content_json["answer"] = blocks_answer
+
                 chunks.append(content_json)
 
         return chunks
@@ -424,6 +461,29 @@ class PerplexityClient:
                                     if url and url not in sources:
                                         sources.append(url)
 
+        # 1b. Schematized responses carry the same results in blocks instead:
+        # ``web_result_block`` (the search hits) and ``sources_mode_block``
+        # (the Sources tab). Without this the legacy path above yields no
+        # citations at all on the current API.
+        blocks = response.get("blocks", [])
+        if isinstance(blocks, list):
+            for block in blocks:
+                if not isinstance(block, dict):
+                    continue
+                for key in ("web_result_block", "sources_mode_block"):
+                    inner = block.get(key)
+                    if not isinstance(inner, dict):
+                        continue
+                    web_results = inner.get("web_results", [])
+                    if not isinstance(web_results, list):
+                        continue
+                    for wr in web_results:
+                        if not isinstance(wr, dict):
+                            continue
+                        url = wr.get("url")
+                        if url and url not in sources and len(sources) < 10:
+                            sources.append(url)
+
         # 2. Also check widget_data for additional sources (backup)
         widget_data = response.get("widget_data", [])
         if isinstance(widget_data, list):
@@ -434,6 +494,69 @@ class PerplexityClient:
                         sources.append(url)
 
         return sources[:10]  # Final cap at 10 unique URLs
+
+    def get_models(self, refresh: bool = False) -> dict[str, dict]:
+        """
+        Return the account's model catalog, keyed by ``model_preference``.
+
+        Read from the same endpoint the web client uses to build its model
+        picker, so it reflects exactly what this account may select. The
+        catalog is NOT hardcoded on purpose: it ships new entries most weeks
+        (the JS bundle captured on 2026-09-10 already lagged this endpoint by
+        several model generations).
+
+        Each value carries ``label``, ``mode``, ``provider`` and
+        ``description``. ``mode`` is the search mode the model belongs to
+        (``search``, ``research``, ``asi``, ...), which determines the payload
+        ``mode`` — see ``_payload_mode_for_model``.
+
+        Args:
+            refresh: Re-fetch instead of using the per-client cache.
+
+        Returns:
+            dict: ``{model_preference: {"label": str, "mode": str, ...}}``
+        """
+        if self._models is None or refresh:
+            response = self._request_with_retry(
+                "GET",
+                ENDPOINT_MODELS_CONFIG,
+                headers={
+                    "x-perplexity-request-endpoint": ENDPOINT_MODELS_CONFIG,
+                    "x-perplexity-request-reason": "use-preferred-search-models",
+                },
+            )
+            models = response.json().get("models")
+            if not isinstance(models, dict) or not models:
+                raise PerplexityError(
+                    "Perplexity model config returned no models"
+                )
+            self._models = models
+        return self._models
+
+    def _payload_mode_for_model(self, model: str) -> str:
+        """
+        Resolve the payload ``mode`` that must accompany ``model``.
+
+        The web client derives it from the model's search mode:
+        ``mode === ASI ? "asi" : "copilot"``. Getting this wrong is what made
+        ``pplx_asi`` fail with ``GENERIC_FAILED_RESPONSE`` in v0.8.0 — it was
+        sent with ``copilot`` instead of ``asi``.
+
+        Raises:
+            ValueError: If the model is not in this account's catalog.
+        """
+        catalog = self.get_models()
+        entry = catalog.get(model)
+        if entry is None:
+            import difflib
+
+            close = difflib.get_close_matches(model, catalog, n=5, cutoff=0.5)
+            hint = f" Did you mean: {', '.join(close)}?" if close else ""
+            raise ValueError(
+                f"Unknown Perplexity model {model!r} "
+                f"({len(catalog)} available).{hint}"
+            )
+        return "asi" if entry.get("mode") == "asi" else "copilot"
 
     def _build_payload(
         self,
@@ -503,6 +626,7 @@ class PerplexityClient:
         sources: list[str],
         language: str,
         follow_up: str | None = None,
+        model: str | None = None,
     ) -> dict:
         """
         Execute search query with specified mode.
@@ -513,9 +637,20 @@ class PerplexityClient:
             sources: List of sources (e.g., ["web"])
             language: Language code (e.g., "en-US")
             follow_up: Optional backend_uuid for follow-up queries
+            model: Optional ``model_preference`` from ``get_models()`` (e.g.
+                ``"claude50sonnetthinking"``), overriding the model that
+                ``mode`` would select. The payload ``mode`` is derived from the
+                catalog, so ASI models are sent correctly.
 
         Returns:
-            dict: Response with 'answer', 'citations', 'backend_uuid'
+            dict: Response with 'answer', 'citations', 'backend_uuid', 'model'
+
+        Note:
+            ``model`` in the result is the model the server actually ran. An
+            account that is not entitled to the requested model is NOT sent an
+            error — the server silently downgrades it (verified live: asking
+            for ``claude47opus`` returned ``display_model: "turbo"``), so
+            compare it against what you asked for.
         """
         # Mode/model mapping — Pro = copilot/pplx_pro (verified live 2026-05-11).
         # deep research = copilot/pplx_alpha: this is the WORKING multi-step
@@ -524,13 +659,28 @@ class PerplexityClient:
         # it, that request had ``query_source: "computer"`` i.e. it belongs to
         # Perplexity's Comet / computer-use agent, NOT Deep Research, and returns
         # GENERIC_FAILED_RESPONSE for a normal query_source="home" ask.
+        #
+        # Every non-ASI model takes ``copilot`` — the SPA derives the payload
+        # mode as ``searchMode === ASI ? "asi" : "copilot"`` and no longer has
+        # a ``concise`` mode at all (absent from the 2026-09-10 bundle). The
+        # server already normalises ``concise`` to the same ``pro_search_mode``
+        # as ``copilot``, so "auto" moved to copilot for web parity at no cost.
+        #
+        # reasoning = pplx_reasoning, Perplexity's in-house reasoning model.
+        # It replaces ``r1`` (DeepSeek R1), which the web picker dropped.
+        # Deliberately in-house rather than a vendor model like
+        # ``claude50sonnetthinking``: those churn every few weeks, this does not.
         mode_mapping = {
             "deep research": ("copilot", "pplx_alpha"),
             "pro": ("copilot", "pplx_pro"),
-            "reasoning": ("copilot", "r1"),
-            "auto": ("concise", "turbo"),
+            "reasoning": ("copilot", "pplx_reasoning"),
+            "auto": ("copilot", "turbo"),
         }
-        payload_mode, model_preference = mode_mapping[mode]
+        if model:
+            payload_mode = self._payload_mode_for_model(model)
+            model_preference = model
+        else:
+            payload_mode, model_preference = mode_mapping[mode]
         payload = self._build_payload(
             query=query,
             payload_mode=payload_mode,
@@ -562,6 +712,7 @@ class PerplexityClient:
                     "answer": parsed["answer"],
                     "citations": citations,
                     "backend_uuid": parsed.get("backend_uuid", ""),
+                    "model": parsed.get("display_model") or model_preference,
                 }
             except BlockedError:
                 # Permanent server-side block (e.g. insufficient_credits).

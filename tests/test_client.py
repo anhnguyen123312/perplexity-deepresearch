@@ -644,7 +644,7 @@ class TestModeMapping:
             assert payload["params"]["model_preference"] == "pplx_pro"
 
     def test_payload_auto(self, mock_cookies, mock_sse_chunks):
-        """Assert mode='concise', model_preference='turbo'."""
+        """Assert mode='copilot', model_preference='turbo'."""
         with (
             patch(
                 "deep_research.perplexity.client.get_cookies", return_value=mock_cookies
@@ -675,5 +675,157 @@ class TestModeMapping:
             call_args = session_instance.request.call_args
             payload = call_args[1]["json"]
 
-            assert payload["params"]["mode"] == "concise"
+            assert payload["params"]["mode"] == "copilot"
             assert payload["params"]["model_preference"] == "turbo"
+
+
+def _blocks_chunk(answer="Block answer", progress="DONE", urls=("https://ex.com/a",)):
+    """A schematized (non-legacy) response: prose + sources live in blocks."""
+    return {
+        "status": "COMPLETED",
+        "backend_uuid": "blocks-uuid",
+        "display_model": "claude50sonnetthinking",
+        "blocks": [
+            {
+                "intended_usage": "ask_text",
+                "markdown_block": {"answer": answer, "progress": progress},
+            },
+            {
+                "intended_usage": "web_results",
+                "web_result_block": {"web_results": [{"url": u} for u in urls]},
+            },
+        ],
+    }
+
+
+def _sse(chunk):
+    return [f"event: message\r\ndata: {json.dumps(chunk)}\r\n\r\n".encode()]
+
+
+class TestSchematizedBlocks:
+    """perplexity.ai moved the answer/citations out of ``text`` into ``blocks``."""
+
+    def _client(self, mock_cookies, chunk):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        # Fresh iterator per attempt: search() retries, and a spent iterator
+        # would mask the error under test with "No response received".
+        mock_response.iter_content.side_effect = lambda **_: iter(_sse(chunk))
+        session_instance = MagicMock()
+        session_instance.request.return_value = mock_response
+        return mock_response, session_instance
+
+    def test_answer_extracted_from_blocks(self, mock_cookies):
+        """A response with no legacy ``text`` still yields its answer."""
+        with (
+            patch("deep_research.perplexity.client.get_cookies", return_value=mock_cookies),
+            patch("deep_research.perplexity.client.to_http_cookies", return_value={"t": "c"}),
+            patch("deep_research.perplexity.client.requests.Session") as mock_session,
+            patch("deep_research.perplexity.client.time.sleep"),
+        ):
+            _, session_instance = self._client(mock_cookies, _blocks_chunk())
+            mock_session.return_value = session_instance
+            client = PerplexityClient()
+            result = client.search(
+                query="test", mode="pro", sources=["web"], language="en-US"
+            )
+
+            assert result["answer"] == "Block answer"
+            assert result["citations"] == ["https://ex.com/a"]
+            assert result["model"] == "claude50sonnetthinking"
+
+    def test_partial_block_is_not_treated_as_final(self, mock_cookies):
+        """A still-streaming block must not end the reconnect loop early."""
+        chunk = _blocks_chunk(answer="half writt", progress="IN_PROGRESS")
+        chunk["reconnectable"] = False
+        with (
+            patch("deep_research.perplexity.client.get_cookies", return_value=mock_cookies),
+            patch("deep_research.perplexity.client.to_http_cookies", return_value={"t": "c"}),
+            patch("deep_research.perplexity.client.requests.Session") as mock_session,
+            patch("deep_research.perplexity.client.time.sleep"),
+        ):
+            _, session_instance = self._client(mock_cookies, chunk)
+            mock_session.return_value = session_instance
+            client = PerplexityClient()
+            with pytest.raises(PerplexityError, match="No answer found"):
+                client.search(
+                    query="test", mode="pro", sources=["web"], language="en-US"
+                )
+
+
+class TestModelOverride:
+    """``model=`` selects any id from the account's live catalog."""
+
+    CATALOG = {
+        "pplx_pro": {"label": "Best", "mode": "search"},
+        "claude50sonnetthinking": {"label": "Claude Sonnet 5 Thinking", "mode": "search"},
+        "pplx_asi": {"label": "Computer", "mode": "asi"},
+    }
+
+    def _run(self, mock_cookies, **search_kwargs):
+        with (
+            patch("deep_research.perplexity.client.get_cookies", return_value=mock_cookies),
+            patch("deep_research.perplexity.client.to_http_cookies", return_value={"t": "c"}),
+            patch("deep_research.perplexity.client.requests.Session") as mock_session,
+            patch("deep_research.perplexity.client.time.sleep"),
+            patch.object(PerplexityClient, "get_models", return_value=self.CATALOG),
+        ):
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.iter_content.return_value = iter(_sse(_blocks_chunk()))
+            session_instance = MagicMock()
+            session_instance.request.return_value = mock_response
+            mock_session.return_value = session_instance
+
+            client = PerplexityClient()
+            client.search(
+                query="test", mode="pro", sources=["web"], language="en-US",
+                **search_kwargs,
+            )
+            return session_instance.request.call_args[1]["json"]["params"]
+
+    def test_model_overrides_mode_default(self, mock_cookies):
+        params = self._run(mock_cookies, model="claude50sonnetthinking")
+        assert params["model_preference"] == "claude50sonnetthinking"
+        assert params["mode"] == "copilot"
+
+    def test_asi_model_switches_payload_mode(self, mock_cookies):
+        """ASI models take mode='asi'; sending 'copilot' is what broke v0.8.0."""
+        params = self._run(mock_cookies, model="pplx_asi")
+        assert params["model_preference"] == "pplx_asi"
+        assert params["mode"] == "asi"
+
+    def test_unknown_model_rejected_with_suggestion(self, mock_cookies):
+        with pytest.raises(ValueError, match="claude50sonnetthinking"):
+            self._run(mock_cookies, model="claude50sonnetthink")
+
+    def test_no_model_keeps_mode_mapping(self, mock_cookies):
+        params = self._run(mock_cookies)
+        assert params["model_preference"] == "pplx_pro"
+
+
+class TestReasoningMapping:
+    """reasoning moved off the retired ``r1`` to Perplexity's own model."""
+
+    def test_payload_reasoning(self, mock_cookies, mock_sse_chunks):
+        with (
+            patch("deep_research.perplexity.client.get_cookies", return_value=mock_cookies),
+            patch("deep_research.perplexity.client.to_http_cookies", return_value={"t": "c"}),
+            patch("deep_research.perplexity.client.requests.Session") as mock_session,
+            patch("deep_research.perplexity.client.time.sleep"),
+        ):
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.iter_content.return_value = iter(mock_sse_chunks)
+            session_instance = MagicMock()
+            session_instance.request.return_value = mock_response
+            mock_session.return_value = session_instance
+
+            client = PerplexityClient()
+            client.search(
+                query="test", mode="reasoning", sources=["web"], language="en-US"
+            )
+            params = session_instance.request.call_args[1]["json"]["params"]
+
+            assert params["mode"] == "copilot"
+            assert params["model_preference"] == "pplx_reasoning"
