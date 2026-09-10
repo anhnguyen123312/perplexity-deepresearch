@@ -74,3 +74,8 @@ Verified live cùng conversation: trước `in_progress=False, reason="Tôi đan
 
 **Chưa có mẫu stop thật** (hết quota/policy) để đối chứng — nếu sau này bắt được,
 kiểm tra lại xem nó có kèm marker không.
+
+**Chốt bằng chứng**: run `c_037bc2a4af5a0b03` hoàn tất `done=True` sau **554s (9,2 phút)**,
+report **40.360 ký tự** — tức suốt 9 phút bị báo "stopped" thì nó vẫn đang chạy bình thường.
+Poll bằng code mới trên conversation đã xong: `done=true, in_progress=false, reason=None`
+→ nhánh `done` không bị fix làm hỏng.
