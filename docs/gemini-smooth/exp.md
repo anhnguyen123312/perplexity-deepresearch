@@ -42,3 +42,35 @@ Date: 2026-06-08. Tất cả verify trên máy thật (.venv), không đoán.
 ## Chưa làm (ngoài phạm vi, ghi nhận)
 - RC2 (Gemini error-chip cold fail): để retry sẵn có lo, không over-engineer.
 - Verify body inner-array vs capture web: thiếu `docs/gemini-mcp/ref.md` (mất) — cần 1 capture live để khoá.
+
+## 2026-09-10 — BUG: ack chip "đang chạy" bị phân loại thành "đã dừng"
+
+Phát hiện khi verify live (`c_037bc2a4af5a0b03`).
+
+`_read_chat_status` nhận ack chip **chỉ khi** `completion == 2`. Nhưng Gemini đang trả:
+
+```
+raw_status = 1        (không phải 2)
+progress   = None     (cand[12][6][0] trống)
+text       = "Tôi đang tiến hành. Khi nghiên cứu hoàn tất, tôi sẽ thông báo…
+              http://googleusercontent.com/immersive_entry_chip/0"
+```
+
+→ rơi vào nhánh `else` = "Stopped (safety policy / usage limit)", trong khi run vẫn khoẻ.
+
+**Hệ quả nặng**: `poll_research` bail khi `reason and not in_progress`
+→ `gemini_deep_research(wait=True)` **trả về sau 0.7s** trên budget 600s, `polls=1`,
+báo dừng giả. Đường non-blocking vẫn tới đích nếu caller phớt lờ `in_progress`,
+nhưng docstring lại dạy caller tin vào nó.
+
+**Fix**: thêm nhánh trước `else` — text chứa `DR_CHIP_MARKER = "immersive_entry_chip"`
+nghĩa là immersive doc đã gắn và đang chạy → `in_progress = True`.
+Đặt **sau** nhánh `progress is not None` để không đổi hành vi cũ, chỉ cứu case bị
+gán nhầm "stopped". Case stop thật (`test_hard_stop_when_no_progress_no_completion`,
+chip_text không có marker) vẫn giữ nguyên.
+
+Verified live cùng conversation: trước `in_progress=False, reason="Tôi đang tiến hành…"`
+→ sau `in_progress=True, reason=None`, `raw_status` vẫn 1.
+
+**Chưa có mẫu stop thật** (hết quota/policy) để đối chứng — nếu sau này bắt được,
+kiểm tra lại xem nó có kèm marker không.

@@ -34,6 +34,7 @@ from .config import (
     CHROME_UA,
     DEFAULT_HL,
     DEFAULT_INNER79_REV,
+    DR_CHIP_MARKER,
     IMPERSONATE_TARGET,
     MODELS,
     PLAN_STAGE_TIMEOUT_SECS,
@@ -665,6 +666,12 @@ class GeminiClient:
                 # Ack chip — research is still running on the server.
                 out["in_progress"] = True
             elif progress is not None:
+                out["in_progress"] = True
+            elif isinstance(out.get("text"), str) and DR_CHIP_MARKER in out["text"]:
+                # Same ack chip, but reported with completion_status 1 and no
+                # progress signal (verified live 2026-09-10). This used to fall
+                # through to "stopped" below, which made poll_research abort
+                # 0.7s into a 10-minute budget on a run that was healthy.
                 out["in_progress"] = True
             else:
                 # Stopped — usage cap / policy / etc. Try to grab a reason.

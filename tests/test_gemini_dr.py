@@ -220,6 +220,46 @@ class TestReadChatStatus:
         assert out["in_progress"] is False
         assert out["reason"]
 
+    def test_running_chip_with_status_1_is_in_progress(self, client, monkeypatch):
+        """Live shape 2026-09-10: a healthy run reports completion_status 1
+        with no progress signal — only the immersive-entry chip marks it
+        alive. Reading that as a hard stop made poll_research abort 0.7s into
+        a 10-minute budget."""
+        chip = (
+            "T\u00f4i \u0111ang ti\u1ebfn h\u00e0nh. Khi nghi\u00ean c\u1ee9u ho\u00e0n t\u1ea5t, "
+            "t\u00f4i s\u1ebd th\u00f4ng b\u00e1o.\n\n"
+            "http://googleusercontent.com/immersive_entry_chip/0"
+        )
+        body = [[_make_turn(completion=1, chip_text=chip)]]
+        monkeypatch.setattr(client, "_batch_execute",
+                            MagicMock(return_value={"body": body, "reject_code": None}))
+        out = client._read_chat_status(conversation_id="c_test", authuser=0)
+        assert out["done"] is False
+        assert out["in_progress"] is True
+        assert out["reason"] is None
+        assert out["raw_status"] == 1
+
+    def test_running_chip_does_not_stop_poll_research(self, client, monkeypatch):
+        """poll_research must keep polling, not treat the chip as a hard stop."""
+        chip = "working… http://googleusercontent.com/immersive_entry_chip/0"
+        running = [[_make_turn(completion=1, chip_text=chip)]]
+        finished = [[_make_turn(completion=2, immersive_md="# Done\n\nbody",
+                                title="T")]]
+        calls = {"n": 0}
+
+        def _fake(*a, **k):
+            calls["n"] += 1
+            return {"body": running if calls["n"] < 3 else finished,
+                    "reject_code": None}
+
+        monkeypatch.setattr(client, "_batch_execute", MagicMock(side_effect=_fake))
+        monkeypatch.setattr("deep_research.gemini.client.time.sleep", lambda *_: None)
+        out = client.poll_research(conversation_id="c_test", authuser=0,
+                                   poll_interval=0, timeout=60)
+        assert out["done"] is True
+        assert out["text"].startswith("# Done")
+        assert calls["n"] >= 3
+
 
 # ---------------------------------------------------------------------- #
 # poll_research

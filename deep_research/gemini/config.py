@@ -60,6 +60,12 @@ RESEARCH_STAGE_TIMEOUT_SECS = 30 * 60   # 30 min hard cap
 POLL_INTERVAL_SECS = 30
 POLL_TIMEOUT_SECS = 30 * 60
 
+# Marker in a chat reply meaning a Deep Research immersive document is
+# attached to the turn. While the run is going the reply is only this chip
+# ("I'm working on it — I'll let you know when the research is done"), so its
+# presence proves the run is alive even when no other progress signal is set.
+DR_CHIP_MARKER = "immersive_entry_chip"
+
 # Inner-array indices that flip Deep Research mode on. See ref.md §3.
 DR_FLAG_INDEX_49 = 49
 DR_FLAG_INDEX_54 = 54
