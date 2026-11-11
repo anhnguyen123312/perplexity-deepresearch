@@ -4,16 +4,16 @@ version = "0.9.1"
 description = "Deep Research MCP server: Perplexity + Grok + Gemini under one roof (macOS, Linux & Windows)"
 requires-python = ">=3.12"
 dependencies = [
-    "curl-cffi>=0.15.0",
+    "curl-cffi>=0.15.0,<0.16",  # 0.16+ fails tests/test_request_parity.py (no `priority` header)
     "pycookiecheat>=0.8.0",
-    "mcp>=1.0.0",
+    "mcp>=1.0.0,<2",  # mcp 2.x removed FastMCP → server crashes on import
     "python-dotenv>=1.0.0",
     "pydantic>=2.9.0",
     "secretstorage>=3.3.0; sys_platform == 'linux'",
     "playwright>=1.59.0",
     "playwright-stealth>=2.0.0",
     "patchright>=1.59.0",
-    "cloakbrowser>=0.3.28",
+    "cloakbrowser>=0.3.28,<0.4",  # 0.7.x fails to import with playwright 1.65
     "rnet>=3.0.0rc22",
     "rookiepy>=0.5.0; sys_platform == 'win32'",
     "pywin32>=300; sys_platform == 'win32'",
