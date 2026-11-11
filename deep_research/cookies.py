@@ -27,6 +27,8 @@ from .browser_control import (
 from .config import (
     COOKIE_MAX_AGE,
     CSRF_TOKEN_VARIANTS,
+    PPLX_LAST_ACTIVE_ACCOUNT_COOKIE,
+    PPLX_SESSION_COOKIE_PREFIX,
     SESSION_TOKEN_VARIANTS,
     get_cookies_file_path,
     is_database_locked_error,
@@ -169,6 +171,31 @@ def get_chrome_cookie_path(profile: str = None) -> str:
     )
 
 
+def _pplx_session_cookie_name(raw_cookies: dict) -> str | None:
+    """Name of the ``__Secure-pplx.session.<uuid>`` cookie to use, or None.
+
+    With several signed-in accounts, take the one Perplexity marks last active.
+    """
+    names = sorted(
+        k for k in raw_cookies
+        if k.startswith(PPLX_SESSION_COOKIE_PREFIX) and raw_cookies[k]
+    )
+    if not names:
+        return None
+    active = PPLX_SESSION_COOKIE_PREFIX + raw_cookies.get(
+        PPLX_LAST_ACTIVE_ACCOUNT_COOKIE, ""
+    )
+    return active if active in names else names[0]
+
+
+def pplx_account_id(normalized: dict) -> str | None:
+    """Account uuid for the ``x-pplx-account`` header; None for legacy cookies."""
+    name = normalized.get("session_token_name", "")
+    if not name.startswith(PPLX_SESSION_COOKIE_PREFIX):
+        return None
+    return name.removeprefix(PPLX_SESSION_COOKIE_PREFIX) or None
+
+
 def normalize_cookies(raw_cookies: dict) -> dict:
     """
     Convert browser cookie names to canonical internal shape.
@@ -191,8 +218,11 @@ def normalize_cookies(raw_cookies: dict) -> dict:
     """
     result = {}
 
-    # Find session token (required)
-    for variant in SESSION_TOKEN_VARIANTS:
+    # Find session token (required). The per-account cookie goes first: once
+    # Perplexity issues it, the legacy next-auth cookie is no longer refreshed
+    # but stays in the cookie DB.
+    pplx_name = _pplx_session_cookie_name(raw_cookies)
+    for variant in ([pplx_name] if pplx_name else []) + SESSION_TOKEN_VARIANTS:
         if variant in raw_cookies:
             result["session_token"] = raw_cookies[variant]
             result["session_token_name"] = variant  # Preserve for HTTP!
@@ -336,7 +366,9 @@ def _extract_cookies_linux_native(cookie_db_path: str) -> dict:
 
 def _has_perplexity_session(raw: dict) -> bool:
     """True if the raw cookie dict contains any known Perplexity session token."""
-    return any(v in raw for v in SESSION_TOKEN_VARIANTS)
+    return _pplx_session_cookie_name(raw) is not None or any(
+        v in raw for v in SESSION_TOKEN_VARIANTS
+    )
 
 
 def _extract_cookies_windows_rookiepy(domain: str = "perplexity.ai") -> dict:

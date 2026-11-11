@@ -153,6 +153,29 @@ class TestClientUsesDefaultHeaders:
             assert len(headers) == len(DEFAULT_HEADERS)
             assert "Chrome/" in headers["user-agent"]
             assert headers["sec-ch-ua-platform"] in ('"macOS"', '"Windows"', '"Linux"')
+            assert "x-pplx-account" not in headers  # legacy next-auth cookie
+
+
+class TestClientSendsPplxAccountHeader:
+    """The per-account session cookie only authenticates with x-pplx-account."""
+
+    def test_header_carries_account_uuid_from_cookie_name(self):
+        account = "11111111-2222-3333-4444-555555555555"
+        cookies = {
+            "session_token": "new-token",
+            "session_token_name": f"__Secure-pplx.session.{account}",
+        }
+        with (
+            patch("deep_research.perplexity.client.get_cookies", return_value=cookies),
+            patch("deep_research.perplexity.client.requests.Session") as mock_session,
+        ):
+            mock_session.return_value.get = MagicMock()
+
+            PerplexityClient()
+
+            kwargs = mock_session.call_args[1]
+            assert kwargs["headers"]["x-pplx-account"] == account
+            assert kwargs["cookies"] == {f"__Secure-pplx.session.{account}": "new-token"}
 
 
 class TestAutoRefreshOn401:

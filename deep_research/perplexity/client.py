@@ -111,6 +111,7 @@ logging.basicConfig(
 logger = logging.getLogger("perplexity-deep-research")
 from ..cookies import (
     get_cookies,
+    pplx_account_id,
     to_http_cookies,
 )
 from ..exceptions import (
@@ -157,6 +158,9 @@ class PerplexityClient:
         headers["user-agent"] = c["user_agent"]
         headers["sec-ch-ua"] = c["sec_ch_ua"]
         headers["sec-ch-ua-platform"] = c["sec_ch_ua_platform"]
+        if account := pplx_account_id(cookies):
+            # Per-account session cookie is anonymous without its account header.
+            headers["x-pplx-account"] = account
         session = requests.Session(
             headers=headers,
             cookies=http_cookies,

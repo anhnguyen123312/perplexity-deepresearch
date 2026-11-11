@@ -172,6 +172,13 @@ SESSION_TOKEN_VARIANTS = [
     "__Host-next-auth.session-token",
 ]
 
+# Current Perplexity auth: one cookie per signed-in account, named
+# "__Secure-pplx.session.<account-uuid>". It only authenticates when the request
+# also carries "x-pplx-account: <account-uuid>"; without it the server answers
+# as an anonymous visitor (docs/pplx-session-auth/research.md).
+PPLX_SESSION_COOKIE_PREFIX = "__Secure-pplx.session."
+PPLX_LAST_ACTIVE_ACCOUNT_COOKIE = "__Host-pplx-last-active-account"
+
 CSRF_TOKEN_VARIANTS = [
     "__Secure-next-auth.csrf-token",
     "next-auth.csrf-token",

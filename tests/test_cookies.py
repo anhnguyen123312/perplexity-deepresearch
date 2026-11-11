@@ -19,12 +19,14 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from deep_research.cookies import (
+    _has_perplexity_session,
     extract_cookies_raw,
     extract_cookies_with_relaunch,
     get_chrome_cookie_path,
     get_cookies,
     load_cookies,
     normalize_cookies,
+    pplx_account_id,
     save_cookies,
     to_http_cookies,
 )
@@ -194,6 +196,55 @@ class TestNormalizeCookies:
         assert result["session_token"] == "session_value"
         assert "csrf_token" not in result
         assert "csrf_token_name" not in result
+
+
+ACCOUNT_A = "11111111-2222-3333-4444-555555555555"
+ACCOUNT_B = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+
+
+class TestPplxSessionCookie:
+    """Perplexity's per-account cookie: ``__Secure-pplx.session.<account-uuid>``."""
+
+    def test_normalize_accepts_pplx_session_cookie(self):
+        raw = {f"__Secure-pplx.session.{ACCOUNT_A}": "new_token"}
+
+        result = normalize_cookies(raw)
+
+        assert result["session_token"] == "new_token"
+        assert result["session_token_name"] == f"__Secure-pplx.session.{ACCOUNT_A}"
+        assert pplx_account_id(result) == ACCOUNT_A
+
+    def test_pplx_session_wins_over_stale_next_auth(self):
+        """Perplexity stops refreshing the next-auth cookie but leaves it in the DB."""
+        raw = {
+            "__Secure-next-auth.session-token": "stale_legacy",
+            f"__Secure-pplx.session.{ACCOUNT_A}": "new_token",
+        }
+
+        result = normalize_cookies(raw)
+
+        assert result["session_token"] == "new_token"
+
+    def test_last_active_account_picked_when_several(self):
+        raw = {
+            f"__Secure-pplx.session.{ACCOUNT_A}": "token_a",
+            f"__Secure-pplx.session.{ACCOUNT_B}": "token_b",
+            "__Host-pplx-last-active-account": ACCOUNT_B,
+        }
+
+        result = normalize_cookies(raw)
+
+        assert result["session_token"] == "token_b"
+        assert pplx_account_id(result) == ACCOUNT_B
+
+    def test_has_session_detects_pplx_session_cookie(self):
+        assert _has_perplexity_session({f"__Secure-pplx.session.{ACCOUNT_A}": "t"})
+        assert not _has_perplexity_session({"pplx.session-id": "anon-visit"})
+
+    def test_legacy_cookie_has_no_account_id(self):
+        result = normalize_cookies({"__Secure-next-auth.session-token": "legacy"})
+
+        assert pplx_account_id(result) is None
 
 
 class TestToHttpCookies:
